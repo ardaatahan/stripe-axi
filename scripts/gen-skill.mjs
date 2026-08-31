@@ -1,6 +1,6 @@
 // Generates skills/stripe-axi/SKILL.md from src/skill/content.ts (via the
 // built dist/). Run `npm run build` first. `--check` exits 1 if the
-// committed file is stale — wire it into CI (AXI principle 7).
+// committed file is stale - wire it into CI (AXI principle 7).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -13,7 +13,7 @@ let renderSkill;
 try {
   ({ renderSkill } = await import(new URL("../dist/skill/content.js", import.meta.url).href));
 } catch {
-  console.log("error: dist/ not found — run 'npm run build' first");
+  console.log("error: dist/ not found - run 'npm run build' first");
   process.exit(1);
 }
 

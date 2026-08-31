@@ -11,7 +11,7 @@ export function print(text: string): void {
  * doubled (CSV style) and line breaks written as \n / \r escapes. Emitting a
  * raw newline inside a quoted value would still split the record across two
  * physical lines, and the continuation line is neither a header nor an
- * indented row — parseToon (and any agent reading stdout) would reject it.
+ * indented row - parseToon (and any agent reading stdout) would reject it.
  */
 export function toonValue(value: unknown): string {
   if (value === null || value === undefined) return "";

@@ -1,4 +1,4 @@
-import { makeDetailCommand, makeGatedCommand, makeListCommand, parseLimit } from "./factory.js";
+import { makeDetailCommand, makeGatedCommand, makeListCommand, parseAmount, parseLimit } from "./factory.js";
 import { emitKV, print } from "../output/toon.js";
 import { formatAmount, formatUnixTime } from "../stripe/format.js";
 
@@ -63,7 +63,8 @@ export const chargeCapture = makeGatedCommand({
   examples: ["stripe-axi charge capture ch_123 --confirm", "stripe-axi charge capture ch_123 --amount 500 --confirm"],
   build: (parsed) => {
     const id = parsed.positionals[0]!;
-    const amount = parsed.flags["amount"] as string | undefined;
+    const rawAmount = parsed.flags["amount"] as string | undefined;
+    const amount = rawAmount === undefined ? undefined : parseAmount(rawAmount);
     return {
       operation: "charge.capture",
       description: `capture charge ${id}${amount ? ` amount=${amount}` : ""}`,

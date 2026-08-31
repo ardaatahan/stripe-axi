@@ -1,7 +1,7 @@
 // Unit tests for the Stripe CLI wrapper: argument construction (form
 // encoding, idempotency key placement) and response/error mapping. Process
 // execution is swapped out via dependency injection (see SpawnFn in
-// src/stripe/cli.ts) rather than mocking node:child_process — built-in
+// src/stripe/cli.ts) rather than mocking node:child_process - built-in
 // module mocks are unreliable across ESM test-runner setups and, when they
 // silently fail to intercept, tests hang for a full 60s timeout waiting on
 // a real `stripe` process that was never actually replaced.
@@ -9,7 +9,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { FIXTURE_CHARGE, FIXTURE_ERROR_INVALID_REQUEST } from "./fixtures.js";
-import { buildCliArgs, flattenParams, renderCliCommand, stripeCliRequest, STRIPE_CLI_INSTALL_HINT } from "../src/stripe/cli.js";
+import { buildCliArgs, flattenParams, parseIdempotentReplayed, renderCliCommand, stripeCliCall, stripeCliRequest, STRIPE_CLI_INSTALL_HINT } from "../src/stripe/cli.js";
 import { AxiError } from "../src/output/errors.js";
 
 function fakeSpawn(opts: {
@@ -74,8 +74,60 @@ describe("buildCliArgs / flattenParams", () => {
     ]);
   });
 
+  it("asks for response headers only when requested", () => {
+    expect(buildCliArgs({ method: "POST", path: "/v1/refunds" })).not.toContain("--show-headers");
+    expect(buildCliArgs({ method: "POST", path: "/v1/refunds", showHeaders: true })).toContain("--show-headers");
+  });
+
   it("omits undefined/null params entirely", () => {
     expect(flattenParams({ a: "x", b: undefined, c: null })).toEqual(["a=x"]);
+  });
+});
+
+describe("parseIdempotentReplayed", () => {
+  // `stripe --show-headers` prints response headers to stderr, one per line,
+  // prefixed with "< " (stripe-cli pkg/stripe/verbosetransport.go).
+  const HEADERS = [
+    "> POST /v1/refunds",
+    "> Idempotency-Key: stripe-axi_refund.create_abc",
+    "< Request-Id: req_123",
+    "< Stripe-Version: 2024-06-20",
+  ];
+
+  it("reads a replayed response", () => {
+    expect(parseIdempotentReplayed([...HEADERS, "< Idempotency-Replayed: true"].join("\n"))).toBe(true);
+  });
+
+  it("reads a freshly executed response", () => {
+    expect(parseIdempotentReplayed([...HEADERS, "< Idempotency-Replayed: false"].join("\n"))).toBe(false);
+  });
+
+  it("reports nothing when the header is absent", () => {
+    expect(parseIdempotentReplayed(HEADERS.join("\n"))).toBeUndefined();
+  });
+
+  it("reports nothing rather than guessing when the value is unparseable", () => {
+    expect(parseIdempotentReplayed("< Idempotency-Replayed: maybe")).toBeUndefined();
+  });
+
+  it("reports nothing for empty stderr", () => {
+    expect(parseIdempotentReplayed("")).toBeUndefined();
+  });
+});
+
+describe("stripeCliCall", () => {
+  it("surfaces the replay verdict alongside the parsed body", async () => {
+    const { spawnFn } = fakeSpawn({
+      stdout: JSON.stringify(FIXTURE_CHARGE),
+      stderr: "< Idempotency-Replayed: true\n",
+      code: 0,
+    });
+    const response = await stripeCliCall(
+      { method: "POST", path: "/v1/refunds", idempotencyKey: "k", showHeaders: true, apiKey: "sk_test_x" },
+      spawnFn,
+    );
+    expect(response.json.id).toBe(FIXTURE_CHARGE.id);
+    expect(response.idempotentReplayed).toBe(true);
   });
 });
 

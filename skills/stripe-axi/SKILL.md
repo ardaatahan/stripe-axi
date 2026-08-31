@@ -1,17 +1,17 @@
 ---
 name: stripe-axi
-description: "AXI-compliant CLI for Stripe — inspect payments, customers, subscriptions, invoices, and balance; move money only under explicit, gated confirmation. Wraps the official Stripe CLI."
+description: "AXI-compliant CLI for Stripe - inspect payments, customers, subscriptions, invoices, and balance; move money only under explicit, gated confirmation. Wraps the official Stripe CLI."
 ---
 
 # stripe-axi
 
-AXI-compliant CLI for Stripe — inspect payments, customers, subscriptions, invoices, and balance; move money only under explicit, gated confirmation. Wraps the official Stripe CLI. (built against AXI spec axi/1.0-2026-07). Run the commands below with npx — no install needed. Requires the official Stripe CLI ('stripe') on PATH and a STRIPE_API_KEY environment variable.
+AXI-compliant CLI for Stripe - inspect payments, customers, subscriptions, invoices, and balance; move money only under explicit, gated confirmation. Wraps the official Stripe CLI. (built against AXI spec axi/1.0-2026-07). Run the commands below with npx - no install needed. Requires the official Stripe CLI ('stripe') on PATH and a STRIPE_API_KEY environment variable.
 
 ## Safety model (read this first)
 
 - **Read-only by default.** Every list/detail/balance/events command only reads data.
 - **Every mutating command dry-runs by default.** It prints the exact `stripe` command it would run and does nothing else. Add `--confirm` to actually execute it.
-- **LIVE mode needs a second acknowledgement.** If the active key is `sk_live_`/`rk_live_`, `--confirm` alone is refused — add `--i-understand-this-is-live` too. `--confirm` alone can never move real money in live mode.
+- **LIVE mode needs a second acknowledgement.** If the active key is `sk_live_`/`rk_live_`, `--confirm` alone is refused - add `--i-understand-this-is-live` too. `--confirm` alone can never move real money in live mode.
 - **Idempotency-Key on every mutating POST**, derived deterministically from the command, the exact request it makes and its parameters, so re-running an identical `--confirm` can't double-charge. The two DELETE writes (`customer rm`, immediate `subscription cancel`) send none: DELETE is idempotent by definition.
 - Refunds and payouts (money leaving the account) are the most guarded commands.
 

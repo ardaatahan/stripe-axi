@@ -7,12 +7,12 @@
 // (did stripe-axi actually shell out?) rather than about the accidental
 // absence of the Stripe CLI on the machine running the suite:
 //
-//   - dry-run (no --confirm) must NEVER invoke `stripe` — the stub's
+//   - dry-run (no --confirm) must NEVER invoke `stripe` - the stub's
 //     invocation log must stay empty.
 //   - a LIVE-mode write with --confirm alone must be refused before ever
-//     invoking `stripe` — same empty-log check.
+//     invoking `stripe` - same empty-log check.
 //   - a LIVE-mode write with --confirm AND --i-understand-this-is-live must
-//     actually reach the CLI — proving the gate opens rather than silently
+//     actually reach the CLI - proving the gate opens rather than silently
 //     no-opping.
 
 import { spawnSync } from "node:child_process";
@@ -39,6 +39,12 @@ created=$(date +%s)
 if [ -n "$STRIPE_AXI_STUB_OLD_CREATED" ]; then
   created=$((created - 86400))
 fi
+if [ -n "$STRIPE_AXI_STUB_REPLAY_HEADER" ]; then
+  printf '< Request-Id: req_stub\n' >&2
+  if [ "$STRIPE_AXI_STUB_REPLAY_HEADER" != "absent" ]; then
+    printf '< Idempotency-Replayed: %s\n' "$STRIPE_AXI_STUB_REPLAY_HEADER" >&2
+  fi
+fi
 if [ -n "$STRIPE_AXI_STUB_FAIL" ]; then
   printf 'Error: unknown flag: --nope\nUsage:\n  stripe post <path> [flags]\n' >&2
   exit 1
@@ -47,7 +53,23 @@ data='[]'
 if [ -n "$STRIPE_AXI_STUB_LIST_ROWS" ]; then
   data='[{"id":"ch_stub_1","amount":500,"currency":"usd","status":"succeeded","created":'"$created"'}]'
 fi
-printf '{"id":"obj_stub_1","object":"stub","created":%s,"amount":500,"amount_captured":500,"currency":"usd","status":"succeeded","active":true,"deleted":true,"url":"https://example.com/stub","email":"stub@example.com","cancel_at_period_end":false,"available":[{"amount":1000,"currency":"usd"}],"data":%s}\\n' "$created" "$data"
+if [ -n "$STRIPE_AXI_STUB_BIG_LIST" ]; then
+  pad=$(awk 'BEGIN{s="";while(length(s)<2000)s=s "x";print s}')
+  rows=""
+  sep=""
+  i=0
+  while [ $i -lt 100 ]; do
+    rows="$rows$sep"'{"id":"ch_big_'"$i"'","amount":500,"currency":"usd","status":"succeeded","created":'"$created"',"description":"'"$pad"'"}'
+    sep=","
+    i=$((i+1))
+  done
+  data="[$rows]"
+fi
+more=false
+if [ -n "$STRIPE_AXI_STUB_HAS_MORE" ]; then
+  more=true
+fi
+printf '{"id":"obj_stub_1","object":"stub","created":%s,"amount":500,"amount_captured":500,"currency":"usd","status":"succeeded","active":true,"deleted":true,"url":"https://example.com/stub","email":"stub@example.com","cancel_at_period_end":false,"available":[{"amount":1000,"currency":"usd"}],"has_more":%s,"data":%s}\\n' "$created" "$more" "$data"
 `;
 
 const sandbox = mkdtempSync(join(tmpdir(), "stripe-axi-e2e-"));
@@ -78,6 +100,12 @@ interface RunOptions {
   listRows?: boolean;
   /** Make the stub fail with a multi-line cobra-style usage error. */
   fail?: boolean;
+  /** Value of the Idempotency-Replayed response header, or "absent" to omit it. */
+  replayHeader?: "true" | "false" | "absent";
+  /** Make list responses report has_more. */
+  hasMore?: boolean;
+  /** Make list responses ~200KB, to exercise stdout flushing. */
+  bigList?: boolean;
 }
 
 function runWith(env: Record<string, string>, opts: RunOptions, args: string[]) {
@@ -94,6 +122,9 @@ function runWith(env: Record<string, string>, opts: RunOptions, args: string[]) 
       STRIPE_AXI_STUB_OLD_CREATED: opts.oldCreated ? "1" : "",
       STRIPE_AXI_STUB_LIST_ROWS: opts.listRows ? "1" : "",
       STRIPE_AXI_STUB_FAIL: opts.fail ? "1" : "",
+      STRIPE_AXI_STUB_REPLAY_HEADER: opts.replayHeader ?? "",
+      STRIPE_AXI_STUB_HAS_MORE: opts.hasMore ? "1" : "",
+      STRIPE_AXI_STUB_BIG_LIST: opts.bigList ? "1" : "",
       ...env,
     },
   });
@@ -234,26 +265,91 @@ describe("the API key reaches the Stripe CLI through its environment, not argv",
   });
 });
 
+// Stripe's own Idempotency-Replayed response header is the only trustworthy
+// signal here: comparing Stripe's `created` against the local clock mislabels
+// every fresh write on a host whose clock runs fast.
 describe("idempotent-replay labelling", () => {
-  it("labels a creation whose stored response is replayed by Stripe", () => {
-    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { oldCreated: true }, ["refund", "ch_123", "--amount", "500", "--confirm"]);
+  it("asks the Stripe CLI for response headers on a keyed write", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "refund", "ch_123", "--amount", "500", "--confirm");
+    expect(r.invocations[0]).toContain("--show-headers");
+  });
+
+  it("does not ask for headers on a read", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "balance");
+    expect(r.invocations[0]).not.toContain("--show-headers");
+  });
+
+  it("labels the result when Stripe reports the request was replayed", () => {
+    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { replayHeader: "true" }, ["refund", "ch_123", "--amount", "500", "--confirm"]);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("REPLAY of a prior identical operation (not freshly executed)");
     expect(r.stdout).toContain("refunded: obj_stub_1");
+    expect(parseToon(r.stdout).ok).toBe(true);
   });
 
-  it("says nothing about replays when the object was freshly created", () => {
-    const r = run({ STRIPE_API_KEY: TEST_KEY }, "refund", "ch_123", "--amount", "500", "--confirm");
+  it("says nothing about replays when Stripe reports a fresh execution", () => {
+    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { replayHeader: "false" }, ["refund", "ch_123", "--amount", "500", "--confirm"]);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("refunded: obj_stub_1");
     expect(r.stdout).not.toContain("REPLAY");
   });
 
-  it("does not label a capture, whose response predates the request by design", () => {
-    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { oldCreated: true }, ["charge", "capture", "ch_123", "--confirm"]);
+  it("claims nothing when Stripe does not report the header at all", () => {
+    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { replayHeader: "absent" }, ["refund", "ch_123", "--amount", "500", "--confirm"]);
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain("captured: charge obj_stub_1");
+    expect(r.stdout).toContain("refunded: obj_stub_1");
     expect(r.stdout).not.toContain("REPLAY");
+  });
+
+  it("does not depend on the local clock: an old object is not a replay", () => {
+    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { oldCreated: true, replayHeader: "false" }, ["refund", "ch_123", "--amount", "500", "--confirm"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain("REPLAY");
+  });
+});
+
+describe("pagination suggestions keep the current view", () => {
+  it("carries the active filters and limit into the next-page command", () => {
+    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { listRows: true, hasMore: true }, [
+      "charges", "--customer", "cus_123", "--limit", "50",
+    ]);
+    expect(r.status).toBe(0);
+    const suggestion = r.stdout.split("\n").find((l) => l.includes("more results"));
+    expect(suggestion).toBeDefined();
+    expect(suggestion).toContain("--customer cus_123");
+    expect(suggestion).toContain("--limit 50");
+    expect(suggestion).toContain("--starting-after ch_stub_1");
+  });
+
+  it("does not suggest a next page when there is none", () => {
+    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { listRows: true }, ["charges", "--customer", "cus_123"]);
+    expect(r.stdout).not.toContain("more results");
+  });
+});
+
+describe("large output survives a slow consumer", () => {
+  it("delivers the whole document instead of one pipe buffer", () => {
+    // process.exit() drops whatever stdout still has queued for the pipe,
+    // truncating the TOON document at ~64KB with exit code 0.
+    const log = join(sandbox, `invocations-${runCount++}.log`);
+    const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(bin)} charges --limit 100 --fields id,amount,description | (sleep 0.4; cat)`;
+    const r = spawnSync("/bin/sh", ["-c", command], {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      env: {
+        ...process.env,
+        HOME: sandbox,
+        PATH: stubPath,
+        STRIPE_API_KEY: TEST_KEY,
+        STRIPE_AXI_STUB_LOG: log,
+        STRIPE_AXI_STUB_BIG_LIST: "1",
+      },
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout.length).toBeGreaterThan(200_000);
+    expect(r.stdout).toContain("ch_big_99");
+    expect(r.stdout.trimEnd().endsWith("stripe-axi refund <charge-id> --amount <cents>")).toBe(true);
+    expect(parseToon(r.stdout).ok).toBe(true);
   });
 });
 
@@ -341,6 +437,30 @@ describe("the Stripe CLI is missing", () => {
     expect(r.stdout).toMatch(/^commands\[\d+\]\{/m);
     expect(r.stdout).not.toContain(LIVE_KEY);
     expect(parseToon(r.stdout).ok).toBe(true);
+  });
+});
+
+describe("money amounts are validated and canonicalised", () => {
+  it("refuses an amount that is not a whole number", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "refund", "ch_1", "--amount", "5.00", "--confirm");
+    expect(r.status).toBe(2);
+    expect(r.stdout).toContain("invalid --amount");
+    expect(r.invocations).toEqual([]);
+  });
+
+  it("refuses a zero or negative amount", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "payout", "create", "--amount", "0", "--confirm");
+    expect(r.status).toBe(2);
+    expect(r.stdout).toContain("invalid --amount");
+    expect(r.invocations).toEqual([]);
+  });
+
+  it("derives one Idempotency-Key regardless of currency case or amount padding", () => {
+    const canonical = run({ STRIPE_API_KEY: TEST_KEY }, "payout", "create", "--amount", "10000", "--currency", "usd");
+    const noisy = run({ STRIPE_API_KEY: TEST_KEY }, "payout", "create", "--amount", "010000", "--currency", "USD");
+    const key = (stdout: string) => /-i (\S+)/.exec(stdout)?.[1];
+    expect(key(canonical.stdout)).toBeDefined();
+    expect(key(noisy.stdout)).toBe(key(canonical.stdout));
   });
 });
 

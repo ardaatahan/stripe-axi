@@ -8,7 +8,7 @@ import { UsageError } from "../output/errors.js";
 import { emitList, print, toonValue } from "../output/toon.js";
 import { helpBlock } from "../output/suggest.js";
 import { requireKey, type KeyInfo } from "../stripe/config.js";
-import { stripeCliRequest } from "../stripe/cli.js";
+import { shellQuote, stripeCliRequest } from "../stripe/cli.js";
 import { assertResourceId } from "../stripe/ids.js";
 import { CONFIRM_FLAG, LIVE_ACK_FLAG, runGatedWrite, type PlannedWrite } from "../safety/gate.js";
 
@@ -32,6 +32,44 @@ export function parseLimit(flags: Record<string, string | boolean>): number {
     throw new UsageError(`invalid --limit '${raw}'`, "--limit must be an integer between 1 and 100");
   }
   return n;
+}
+
+/**
+ * Validates a money amount and returns it in Stripe's canonical form, so
+ * "010000" and "10000" are one request with one Idempotency-Key rather than
+ * two keys for the same payout.
+ */
+export function parseAmount(raw: string, flag = "amount"): string {
+  if (!/^\d+$/.test(raw)) {
+    throw new UsageError(
+      `invalid --${flag} '${raw}'`,
+      `--${flag} is a whole number of the currency's smallest unit (e.g. 500 for $5.00)`,
+    );
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new UsageError(`invalid --${flag} '${raw}'`, `--${flag} must be a positive whole number`);
+  }
+  return String(value);
+}
+
+/**
+ * The next page must be the SAME view, one page along: an agent following this
+ * suggestion with the filters dropped would silently page through a different
+ * result set.
+ */
+function nextPageCommand(name: string, spec: CommandSpec, flags: Record<string, string | boolean>, lastId: string): string {
+  const parts = [`stripe-axi ${name}`];
+  for (const flag of spec.flags) {
+    if (flag.name === "starting-after") continue;
+    const value = flags[flag.name];
+    if (value === undefined || value === "" || value === false) continue;
+    if (flag.default !== undefined && value === flag.default) continue;
+    if (flag.type === "boolean") parts.push(`--${flag.name}`);
+    else parts.push(`--${flag.name}`, shellQuote(String(value)));
+  }
+  parts.push("--starting-after", shellQuote(lastId));
+  return parts.join(" ");
 }
 
 export interface ListConfig {
@@ -94,8 +132,8 @@ export function makeListCommand(cfg: ListConfig): CommandModule {
       print(emitList(toonName, rows, fields));
       const suggestions = [...cfg.suggestions(parsed.flags, rows)];
       if (result.has_more) {
-        const lastId = rawRows[rawRows.length - 1]?.id;
-        suggestions.unshift(`stripe-axi ${cfg.name} --starting-after ${lastId} (more results)`);
+        const lastId = String(rawRows[rawRows.length - 1]?.id ?? "");
+        suggestions.unshift(`${nextPageCommand(cfg.name, spec, parsed.flags, lastId)} (more results)`);
       }
       print(helpBlock(suggestions));
       return 0;

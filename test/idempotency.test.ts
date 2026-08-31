@@ -28,8 +28,8 @@ describe("deriveIdempotencyKey", () => {
     expect(a).not.toBe(b);
   });
 
-  // The operations that carry their target only in the path — void, capture,
-  // cancel, delete — have empty or constant params, so keying on
+  // The operations that carry their target only in the path - void, capture,
+  // cancel, delete - have empty or constant params, so keying on
   // operation+params alone would send one key for two different resources and
   // let Stripe replay the first response for the second request.
   it("differs across resources when the operation and params are identical", () => {

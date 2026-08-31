@@ -9,13 +9,15 @@
 //
 // Every real write carries a deterministic Idempotency-Key, so a repeat of an
 // identical invocation is replayed by Stripe rather than executed twice. That
-// is the point, but it must never LOOK like a fresh execution: a replayed
-// creation is labelled as such in the output (see isIdempotentReplay).
+// is the point, but it must never LOOK like a fresh execution: when Stripe
+// reports the replay in its Idempotency-Replayed response header, the output
+// says so. If Stripe does not report it, nothing is claimed either way - a
+// wrong label on a money-moving command is worse than no label.
 //
 // --confirm ALONE must never be sufficient to move real money in live mode.
 
 import type { KeyInfo, KeyMode } from "../stripe/config.js";
-import { renderCliCommand, stripeCliRequest, type CliMethod } from "../stripe/cli.js";
+import { renderCliCommand, stripeCliCall, type CliMethod } from "../stripe/cli.js";
 import { deriveIdempotencyKey } from "./idempotency.js";
 import { UsageError } from "../output/errors.js";
 import { emitBlock, emitKV, print, toonValue } from "../output/toon.js";
@@ -41,31 +43,8 @@ export interface PlannedWrite {
   method: Extract<CliMethod, "POST" | "DELETE">;
   path: string;
   params?: Record<string, unknown>;
-  /** Money leaving/moving in the account — gets extra-loud dry-run wording. */
+  /** Money leaving/moving in the account - gets extra-loud dry-run wording. */
   movesMoney?: boolean;
-  /**
-   * True when the response is an object this call brings into existence
-   * (refund, payout, customer, session): its `created` timestamp then dates
-   * THIS execution, which is what makes replay detection possible below.
-   * Capture/void/cancel/update responses carry the target object's original
-   * `created`, so the same check would be meaningless there.
-   */
-  createsObject?: boolean;
-}
-
-/**
- * Stripe replays the stored response for a repeated Idempotency-Key within
- * ~24h instead of executing again. A freshly created object is always
- * timestamped ~now, so a `created` older than this margin (generous enough
- * for request latency and clock skew) means the response is a replay.
- */
-const REPLAY_AGE_SECONDS = 30;
-
-function isIdempotentReplay(plan: PlannedWrite, result: any): boolean {
-  if (!plan.createsObject || plan.method !== "POST") return false;
-  const created = result?.created;
-  if (typeof created !== "number") return false;
-  return Math.floor(Date.now() / 1000) - created > REPLAY_AGE_SECONDS;
 }
 
 export interface GateContext {
@@ -74,12 +53,23 @@ export interface GateContext {
   liveAck: boolean;
 }
 
+/** Only a keyed POST can be replayed, so only there are headers worth asking for. */
+function wantsHeaders(plan: PlannedWrite): boolean {
+  return plan.method === "POST";
+}
+
 function printDryRun(plan: PlannedWrite, mode: KeyMode, idempotencyKey: string): void {
-  const moneyNote = plan.movesMoney ? " — this MOVES MONEY when executed" : "";
-  print(`dry-run: ${toonValue(`${plan.description} (not executed — pass --confirm to run)${moneyNote}`)}`);
+  const moneyNote = plan.movesMoney ? " - this MOVES MONEY when executed" : "";
+  print(`dry-run: ${toonValue(`${plan.description} (not executed - pass --confirm to run)${moneyNote}`)}`);
   print(emitKV([["mode", mode.toUpperCase()]]));
   print(emitBlock("command", [
-    renderCliCommand({ method: plan.method, path: plan.path, params: plan.params, idempotencyKey }),
+    renderCliCommand({
+      method: plan.method,
+      path: plan.path,
+      params: plan.params,
+      idempotencyKey,
+      showHeaders: wantsHeaders(plan),
+    }),
   ]));
   const next =
     mode === "live"
@@ -116,14 +106,15 @@ export async function runGatedWrite(
     );
   }
 
-  const result = await stripeCliRequest({
+  const { json: result, idempotentReplayed } = await stripeCliCall({
     method: plan.method,
     path: plan.path,
     params: plan.params,
     idempotencyKey,
+    showHeaders: wantsHeaders(plan),
     apiKey: ctx.keyInfo.key,
   });
-  const replayed = isIdempotentReplay(plan, result);
+  const replayed = idempotentReplayed === true;
   if (replayed) {
     print(
       "replay: REPLAY of a prior identical operation (not freshly executed) - Stripe returned the stored result for this Idempotency-Key",

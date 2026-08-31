@@ -8,7 +8,7 @@ import { emitList } from "../output/toon.js";
 import { helpBlock } from "../output/suggest.js";
 
 export const DESCRIPTION =
-  "AXI-compliant CLI for Stripe — inspect payments, customers, subscriptions, invoices, and balance; move money only under explicit, gated confirmation. Wraps the official Stripe CLI.";
+  "AXI-compliant CLI for Stripe - inspect payments, customers, subscriptions, invoices, and balance; move money only under explicit, gated confirmation. Wraps the official Stripe CLI.";
 
 export const SPEC_VERSION = "axi/1.0-2026-07";
 
@@ -76,7 +76,7 @@ export function homeBody(tool: string): string {
 }
 
 export function renderHome(binPath: string): string {
-  const header = `stripe-axi: ${collapseHome(binPath)} — ${DESCRIPTION}`;
+  const header = `stripe-axi: ${collapseHome(binPath)} - ${DESCRIPTION}`;
   return [header, "key: none found", homeBody("stripe-axi")].join("\n");
 }
 
@@ -117,13 +117,13 @@ export function renderSkill(): string {
   const body = [
     "# stripe-axi",
     "",
-    `${DESCRIPTION} (built against AXI spec ${SPEC_VERSION}). Run the commands below with npx — no install needed. Requires the official Stripe CLI ('stripe') on PATH and a STRIPE_API_KEY environment variable.`,
+    `${DESCRIPTION} (built against AXI spec ${SPEC_VERSION}). Run the commands below with npx - no install needed. Requires the official Stripe CLI ('stripe') on PATH and a STRIPE_API_KEY environment variable.`,
     "",
     "## Safety model (read this first)",
     "",
     "- **Read-only by default.** Every list/detail/balance/events command only reads data.",
     "- **Every mutating command dry-runs by default.** It prints the exact `stripe` command it would run and does nothing else. Add `--confirm` to actually execute it.",
-    "- **LIVE mode needs a second acknowledgement.** If the active key is `sk_live_`/`rk_live_`, `--confirm` alone is refused — add `--i-understand-this-is-live` too. `--confirm` alone can never move real money in live mode.",
+    "- **LIVE mode needs a second acknowledgement.** If the active key is `sk_live_`/`rk_live_`, `--confirm` alone is refused - add `--i-understand-this-is-live` too. `--confirm` alone can never move real money in live mode.",
     "- **Idempotency-Key on every mutating POST**, derived deterministically from the command, the exact request it makes and its parameters, so re-running an identical `--confirm` can't double-charge. The two DELETE writes (`customer rm`, immediate `subscription cancel`) send none: DELETE is idempotent by definition.",
     "- Refunds and payouts (money leaving the account) are the most guarded commands.",
     "",

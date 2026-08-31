@@ -1,15 +1,15 @@
-// Wraps the official Stripe CLI (`stripe`) via child_process — stripe-axi
+// Wraps the official Stripe CLI (`stripe`) via child_process - stripe-axi
 // never talks to api.stripe.com directly. Every API call becomes
 // `stripe get|post|delete <path> [-d k=v...] [-i <idempotency-key>]`, the
 // documented full-coverage passthrough (docs.stripe.com/cli/get, /cli/post,
 // /cli/delete) rather than the resource subcommands (`stripe customers ...`),
 // whose per-resource operation names aren't fully enumerable from docs alone
-// — using one fully-verified code path for every resource keeps this
+// - using one fully-verified code path for every resource keeps this
 // correct and testable instead of guessing at ~15 resources' verb sets.
 //
 // `--confirm` is passed to the underlying `stripe` process on mutating
 // (POST/DELETE) calls only, so its own interactive "are you sure?" prompt
-// never blocks a non-interactive run — that is a DIFFERENT flag from
+// never blocks a non-interactive run - that is a DIFFERENT flag from
 // stripe-axi's own `--confirm` (see src/safety/gate.ts), which is what
 // decided to invoke the CLI at all. `stripe get` never prompts and does not
 // register the flag, so sending it there would be rejected as an unknown flag.
@@ -32,7 +32,7 @@ export type SpawnFn = typeof nodeSpawn;
 
 export const STRIPE_CLI_BIN = "stripe";
 export const STRIPE_CLI_INSTALL_HINT =
-  "install the official Stripe CLI: 'brew install stripe/stripe-cli/stripe' (Homebrew) or 'npm install -g @stripe/cli' — see https://docs.stripe.com/stripe-cli for other platforms";
+  "install the official Stripe CLI: 'brew install stripe/stripe-cli/stripe' (Homebrew) or 'npm install -g @stripe/cli' - see https://docs.stripe.com/stripe-cli for other platforms";
 
 export type CliMethod = "GET" | "POST" | "DELETE";
 
@@ -43,6 +43,8 @@ export interface CliRequest {
   params?: Record<string, unknown>;
   /** Only meaningful (and only sent) for POST. */
   idempotencyKey?: string;
+  /** Ask the CLI to report response headers, so a replay can be detected. */
+  showHeaders?: boolean;
   apiKey: string;
 }
 
@@ -67,13 +69,14 @@ export function buildCliArgs(req: Omit<CliRequest, "apiKey">): string[] {
   const verb = req.method === "GET" ? "get" : req.method === "POST" ? "post" : "delete";
   const args = [verb, req.path, "--color", "off"];
   if (req.method !== "GET") args.push("--confirm");
+  if (req.showHeaders) args.push("--show-headers");
   for (const p of flattenParams(req.params ?? {})) args.push("-d", p);
   if (req.method === "POST" && req.idempotencyKey) args.push("-i", req.idempotencyKey);
   return args;
 }
 
 /** Quotes one argv token so the rendered command means the same thing in a shell. */
-function shellQuote(arg: string): string {
+export function shellQuote(arg: string): string {
   if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(arg)) return arg;
   if (/[\x00-\x1f]/.test(arg)) {
     const escaped = arg
@@ -88,7 +91,7 @@ function shellQuote(arg: string): string {
   return "'" + arg.replace(/'/g, "'\\''") + "'";
 }
 
-/** Renders the equivalent shell command for dry-run display — the API key is never included. */
+/** Renders the equivalent shell command for dry-run display - the API key is never included. */
 export function renderCliCommand(req: Omit<CliRequest, "apiKey">): string {
   return ["STRIPE_API_KEY=<redacted>", "stripe", ...buildCliArgs(req).map(shellQuote)].join(" ");
 }
@@ -144,7 +147,34 @@ function mapSpawnError(err: unknown): AxiError {
   return new AxiError(`failed to run the Stripe CLI: ${message}`, STRIPE_CLI_INSTALL_HINT);
 }
 
+/**
+ * Stripe reports a replayed idempotent request with an `Idempotency-Replayed`
+ * response header. `--show-headers` prints response headers to stderr, one per
+ * line, prefixed with "< " (see stripe-cli pkg/stripe/verbosetransport.go), so
+ * the JSON body on stdout is untouched. Returns undefined when the header is
+ * absent or not a plain true/false: an unverified guess is worse than no claim.
+ */
+export function parseIdempotentReplayed(stderr: string): boolean | undefined {
+  for (const line of stderr.split("\n")) {
+    const match = /^[<>]?\s*idempotency-replayed:\s*(\S+)\s*$/i.exec(line.trim());
+    if (!match) continue;
+    const value = match[1]!.toLowerCase();
+    return value === "true" ? true : value === "false" ? false : undefined;
+  }
+  return undefined;
+}
+
+export interface CliResponse {
+  json: any;
+  /** Stripe's verdict on whether this request was replayed; undefined if unreported. */
+  idempotentReplayed?: boolean;
+}
+
 export async function stripeCliRequest(req: CliRequest, spawnFn?: SpawnFn): Promise<any> {
+  return (await stripeCliCall(req, spawnFn)).json;
+}
+
+export async function stripeCliCall(req: CliRequest, spawnFn?: SpawnFn): Promise<CliResponse> {
   const result = await execStripeCli(buildCliArgs(req), spawnFn, req.apiKey);
   const text = result.stdout.trim();
 
@@ -169,10 +199,10 @@ export async function stripeCliRequest(req: CliRequest, spawnFn?: SpawnFn): Prom
       detail || "re-run with the same arguments; report if it persists",
     );
   }
-  return json;
+  return { json, idempotentReplayed: parseIdempotentReplayed(result.stderr) };
 }
 
-/** Cheap presence check for the home view — does not require a valid key. */
+/** Cheap presence check for the home view - does not require a valid key. */
 export async function isStripeCliInstalled(spawnFn?: SpawnFn): Promise<boolean> {
   try {
     const result = await execStripeCli(["--version"], spawnFn);

@@ -2,7 +2,7 @@
 // runs it automatically via `npm test`).
 
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,6 +46,19 @@ describe("stripe-axi AXI contract", () => {
   it("stderr is silent on success (principle 6)", () => {
     const r = run();
     expect(r.stderr.trim()).toBe("");
+  });
+});
+
+describe("--version", () => {
+  it("reports the version from the package manifest", () => {
+    // package.json is the published manifest, and the version the CLI reports
+    // must be the version that was installed.
+    const manifest = JSON.parse(
+      readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"),
+    );
+    const r = run("--version");
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe(`stripe-axi: ${manifest.version}`);
   });
 });
 

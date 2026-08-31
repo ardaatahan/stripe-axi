@@ -22,17 +22,17 @@ function suggestionForError(type: string, code: string | undefined, param: strin
       }
       return param ? `check the '${param}' value and retry` : "check the request parameters against '--help' and retry";
     case "idempotency_error":
-      return "a prior request reused this Idempotency-Key with different parameters — retry with unchanged parameters or wait ~24h for it to expire";
+      return "a prior request reused this Idempotency-Key with different parameters - retry with unchanged parameters or wait ~24h for it to expire";
     case "card_error":
-      return "the card was declined by Stripe or the issuing bank — this is not a bug in stripe-axi";
+      return "the card was declined by Stripe or the issuing bank - this is not a bug in stripe-axi";
     case "api_error":
-      return "this is a Stripe-side error — retry, and check https://status.stripe.com if it persists";
+      return "this is a Stripe-side error - retry, and check https://status.stripe.com if it persists";
     case "authentication_error":
       return "check STRIPE_API_KEY is a valid, unrevoked key from https://dashboard.stripe.com/apikeys";
     case "permission_error":
-      return "the API key lacks permission for this — restricted keys need this resource enabled at https://dashboard.stripe.com/apikeys";
+      return "the API key lacks permission for this - restricted keys need this resource enabled at https://dashboard.stripe.com/apikeys";
     case "rate_limit_error":
-      return "you're being rate limited — wait a moment and retry";
+      return "you're being rate limited - wait a moment and retry";
     default:
       return "re-run with '--help' to check parameters";
   }

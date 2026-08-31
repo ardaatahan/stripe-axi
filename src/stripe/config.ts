@@ -1,5 +1,5 @@
 // API key discovery and live/test mode detection. Never logs or echoes the
-// key itself — only the safe prefix (e.g. "sk_test_") is ever surfaced.
+// key itself - only the safe prefix (e.g. "sk_test_") is ever surfaced.
 
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -32,7 +32,7 @@ export function parseKey(raw: string): KeyInfo {
   if (!match) {
     throw new AxiError(
       "unrecognized Stripe API key format",
-      "expected a key starting with sk_test_, sk_live_, rk_test_, or rk_live_ — create one at https://dashboard.stripe.com/apikeys",
+      "expected a key starting with sk_test_, sk_live_, rk_test_, or rk_live_ - create one at https://dashboard.stripe.com/apikeys",
     );
   }
   if (key.length < match.prefix.length + 8) {
@@ -83,7 +83,7 @@ export function requireKey(): KeyInfo {
   if (!info) {
     throw new AxiError(
       "no Stripe API key found",
-      `set STRIPE_API_KEY in your environment, or write one to ${collapseHome(CONFIG_PATH)} — start with a TEST key (sk_test_...) from https://dashboard.stripe.com/apikeys`,
+      `set STRIPE_API_KEY in your environment, or write one to ${collapseHome(CONFIG_PATH)} - start with a TEST key (sk_test_...) from https://dashboard.stripe.com/apikeys`,
     );
   }
   return info;

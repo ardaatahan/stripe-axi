@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { CommandModule } from "../cli/router.js";
 import { emitKV, emitList, print } from "../output/toon.js";
 import { helpBlock } from "../output/suggest.js";
@@ -5,6 +6,16 @@ import { commandTable, renderHome, rootHelpText } from "../skill/content.js";
 import { loadKey } from "../stripe/config.js";
 import { isStripeCliInstalled, stripeCliRequest, STRIPE_CLI_INSTALL_HINT } from "../stripe/cli.js";
 import { formatAmount, formatUnixTime } from "../stripe/format.js";
+
+/** The package manifest is the only source of truth for the version. */
+function toolVersion(): string {
+  try {
+    const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    return String(manifest.version ?? "unknown");
+  } catch {
+    return "unknown";
+  }
+}
 
 export const homeCommand: CommandModule = {
   spec: {
@@ -17,7 +28,7 @@ export const homeCommand: CommandModule = {
   },
   async run(parsed) {
     if (parsed.flags["version"]) {
-      print("stripe-axi: 0.1.0");
+      print(`stripe-axi: ${toolVersion()}`);
       return 0;
     }
 

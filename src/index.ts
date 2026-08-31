@@ -59,5 +59,8 @@ const registry: Registry = {
   aliases: {},
 };
 
-const code = await dispatch(registry, process.argv.slice(2));
-process.exit(code);
+// Not process.exit(): stdout writes to a pipe are asynchronous, and exiting
+// immediately discards whatever is still buffered, truncating the document an
+// agent is parsing. dispatch has already awaited everything, so setting the
+// code lets the process exit as soon as stdout drains.
+process.exitCode = await dispatch(registry, process.argv.slice(2));

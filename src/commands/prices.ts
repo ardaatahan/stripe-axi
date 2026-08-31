@@ -56,7 +56,7 @@ export const priceDetail = makeDetailCommand({
   suggestions: (id) => [`stripe-axi price update ${id} --active false --confirm`],
 });
 
-// Note: Stripe prices are immutable once created — unit_amount cannot be
+// Note: Stripe prices are immutable once created - unit_amount cannot be
 // changed via update. Only active/nickname/metadata/tax_behavior are.
 export const priceUpdate = makeGatedCommand({
   name: "price update",

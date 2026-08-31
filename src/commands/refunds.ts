@@ -1,4 +1,4 @@
-import { makeListCommand, parseLimit } from "./factory.js";
+import { makeListCommand, parseAmount, parseLimit } from "./factory.js";
 import { emitKV, print } from "../output/toon.js";
 import { formatAmount, formatUnixTime } from "../stripe/format.js";
 import { CONFIRM_FLAG, LIVE_ACK_FLAG, runGatedWrite } from "../safety/gate.js";
@@ -57,7 +57,8 @@ export const refundCreate: CommandModule = {
   },
   async run(parsed) {
     const id = assertResourceId(parsed.positionals[0]!, "id");
-    const amount = parsed.flags["amount"] as string | undefined;
+    const rawAmount = parsed.flags["amount"] as string | undefined;
+    const amount = rawAmount === undefined ? undefined : parseAmount(rawAmount);
     const reason = parsed.flags["reason"] as string | undefined;
     if (reason && !["duplicate", "fraudulent", "requested_by_customer"].includes(reason)) {
       throw new UsageError(`invalid --reason '${reason}'`, "valid values: duplicate, fraudulent, requested_by_customer");
@@ -79,8 +80,7 @@ export const refundCreate: CommandModule = {
         path: "/v1/refunds",
         params,
         movesMoney: true,
-        createsObject: true,
-      },
+        },
       (result) => {
         print(`refunded: ${result.id} (mode ${keyInfo.mode.toUpperCase()})`);
         print(emitKV([

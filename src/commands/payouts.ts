@@ -1,4 +1,4 @@
-import { makeDetailCommand, makeGatedCommand, makeListCommand, parseLimit } from "./factory.js";
+import { makeDetailCommand, makeGatedCommand, makeListCommand, parseAmount, parseLimit } from "./factory.js";
 import { emitKV, print } from "../output/toon.js";
 import { formatAmount, formatUnixTime } from "../stripe/format.js";
 import { UsageError } from "../output/errors.js";
@@ -49,11 +49,11 @@ export const payoutDetail = makeDetailCommand({
   suggestions: () => ["stripe-axi payout create --amount <cents> --currency usd --confirm"],
 });
 
-// Payouts move money OUT of the Stripe account to the bank — per the brief,
+// Payouts move money OUT of the Stripe account to the bank - per the brief,
 // the single most guarded operation in the tool.
 export const payoutCreate = makeGatedCommand({
   name: "payout create",
-  summary: "Create a payout to your bank account (MOST GUARDED — moves money out)",
+  summary: "Create a payout to your bank account (MOST GUARDED - moves money out)",
   extraFlags: [
     { name: "amount", type: "string", description: "amount in cents (required)" },
     { name: "currency", type: "string", default: "usd", description: "three-letter ISO currency code" },
@@ -63,11 +63,12 @@ export const payoutCreate = makeGatedCommand({
     "stripe-axi payout create --amount 10000 --confirm --i-understand-this-is-live",
   ],
   build: (parsed) => {
-    const amount = parsed.flags["amount"] as string | undefined;
-    const currency = String(parsed.flags["currency"] ?? "usd");
-    if (!amount) {
+    const rawAmount = parsed.flags["amount"] as string | undefined;
+    if (!rawAmount) {
       throw new UsageError("payout create requires --amount", "stripe-axi payout create --amount <cents> --currency usd --confirm");
     }
+    const amount = parseAmount(rawAmount);
+    const currency = String(parsed.flags["currency"] ?? "usd").toLowerCase();
     return {
       operation: "payout.create",
       description: `create payout amount=${amount} currency=${currency}`,
@@ -75,7 +76,6 @@ export const payoutCreate = makeGatedCommand({
       path: "/v1/payouts",
       params: { amount, currency },
       movesMoney: true,
-      createsObject: true,
     };
   },
   onSuccess: (result, keyInfo) => {
