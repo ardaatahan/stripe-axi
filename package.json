@@ -1,0 +1,40 @@
+{
+  "name": "stripe-axi",
+  "version": "0.1.0",
+  "description": "AXI-compliant CLI for the Stripe API: inspect payments, customers, subscriptions, invoices, and balance from the terminal, with money-moving commands gated behind explicit confirmation.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ardaatahan/stripe-axi.git"
+  },
+  "homepage": "https://github.com/ardaatahan/stripe-axi",
+  "bugs": "https://github.com/ardaatahan/stripe-axi/issues",
+  "keywords": ["stripe", "cli", "axi", "agent", "payments"],
+  "bin": {
+    "stripe-axi": "bin/stripe-axi.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "skill:gen": "node scripts/gen-skill.mjs",
+    "skill:check": "node scripts/gen-skill.mjs --check"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
