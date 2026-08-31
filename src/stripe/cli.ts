@@ -72,9 +72,15 @@ export function buildCliArgs(req: Omit<CliRequest, "apiKey">): string[] {
   return args;
 }
 
+/** Quotes one argv token so the rendered command means the same thing in a shell. */
+function shellQuote(arg: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(arg)) return arg;
+  return "'" + arg.replace(/'/g, "'\\''") + "'";
+}
+
 /** Renders the equivalent shell command for dry-run display — the API key is never included. */
 export function renderCliCommand(req: Omit<CliRequest, "apiKey">): string {
-  return ["STRIPE_API_KEY=<redacted>", "stripe", ...buildCliArgs(req)].join(" ");
+  return ["STRIPE_API_KEY=<redacted>", "stripe", ...buildCliArgs(req).map(shellQuote)].join(" ");
 }
 
 export interface CliResult {

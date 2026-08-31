@@ -9,6 +9,7 @@ import { emitList, print } from "../output/toon.js";
 import { helpBlock } from "../output/suggest.js";
 import { requireKey, type KeyInfo } from "../stripe/config.js";
 import { stripeCliRequest } from "../stripe/cli.js";
+import { assertResourceId } from "../stripe/ids.js";
 import { CONFIRM_FLAG, LIVE_ACK_FLAG, runGatedWrite, type PlannedWrite } from "../safety/gate.js";
 
 export const LIMIT_FLAG: FlagSpec = {
@@ -83,8 +84,9 @@ export function makeListCommand(cfg: ListConfig): CommandModule {
       // but cfg.name may (e.g. "checkout sessions") for display in --help.
       const toonName = cfg.name.replace(/\s+/g, "_");
 
+      print(`mode: ${keyInfo.mode.toUpperCase()}`);
       if (rows.length === 0) {
-        print(`${toonName}: 0 results (${cfg.emptyContext(parsed.flags)}, mode ${keyInfo.mode.toUpperCase()})`);
+        print(`${toonName}: 0 results (${cfg.emptyContext(parsed.flags)})`);
         print(helpBlock(cfg.suggestions(parsed.flags, rows)));
         return 0;
       }
@@ -116,7 +118,7 @@ export function makeDetailCommand(cfg: DetailConfig): CommandModule {
   return {
     spec: { name: cfg.name, summary: cfg.summary, args, flags: [], examples: cfg.examples },
     async run(parsed) {
-      const id = parsed.positionals[0]!;
+      const id = assertResourceId(parsed.positionals[0]!, cfg.argName);
       const keyInfo = requireKey();
       const result = await stripeCliRequest({ method: "GET", path: cfg.path(id), apiKey: keyInfo.key });
       cfg.render(result, keyInfo);
@@ -147,6 +149,7 @@ export function makeGatedCommand(cfg: GatedConfig): CommandModule {
   return {
     spec,
     async run(parsed) {
+      parsed.positionals.forEach((value, i) => assertResourceId(value, cfg.args?.[i]?.name ?? "id"));
       const keyInfo = requireKey();
       const plan = cfg.build(parsed, keyInfo);
       const confirm = Boolean(parsed.flags["confirm"]);

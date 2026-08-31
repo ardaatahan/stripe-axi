@@ -44,6 +44,23 @@ describe("deriveIdempotencyKey", () => {
     expect(a).not.toBe(b);
   });
 
+  // line_items is the only thing that differs between two `checkout create` or
+  // `payment-link create` invocations; a shallow String(value) renders both as
+  // "[object Object]" and hands two different requests the same key.
+  it("differs across nested param values", () => {
+    const link = { operation: "payment_link.create", method: "POST", path: "/v1/payment_links" };
+    const a = deriveIdempotencyKey({ ...link, params: { line_items: [{ price: "price_A", quantity: "1" }] } });
+    const b = deriveIdempotencyKey({ ...link, params: { line_items: [{ price: "price_B", quantity: "1" }] } });
+    expect(a).not.toBe(b);
+  });
+
+  it("differs across nested param values nested two levels deep", () => {
+    const session = { operation: "checkout_session.create", method: "POST", path: "/v1/checkout/sessions" };
+    const a = deriveIdempotencyKey({ ...session, params: { metadata: { order: { id: "1" } } } });
+    const b = deriveIdempotencyKey({ ...session, params: { metadata: { order: { id: "2" } } } });
+    expect(a).not.toBe(b);
+  });
+
   it("stays within Stripe's 255-character idempotency key limit", () => {
     const key = deriveIdempotencyKey({
       operation: "payout.create",

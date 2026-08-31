@@ -4,6 +4,7 @@ import { formatAmount, formatUnixTime } from "../stripe/format.js";
 import { CONFIRM_FLAG, LIVE_ACK_FLAG, runGatedWrite } from "../safety/gate.js";
 import { requireKey } from "../stripe/config.js";
 import { UsageError } from "../output/errors.js";
+import { assertResourceId } from "../stripe/ids.js";
 import type { CommandModule } from "../cli/router.js";
 
 const FIELDS = ["id", "charge", "amount", "currency", "status", "reason", "created"];
@@ -55,7 +56,7 @@ export const refundCreate: CommandModule = {
     ],
   },
   async run(parsed) {
-    const id = parsed.positionals[0]!;
+    const id = assertResourceId(parsed.positionals[0]!, "id");
     const amount = parsed.flags["amount"] as string | undefined;
     const reason = parsed.flags["reason"] as string | undefined;
     if (reason && !["duplicate", "fraudulent", "requested_by_customer"].includes(reason)) {

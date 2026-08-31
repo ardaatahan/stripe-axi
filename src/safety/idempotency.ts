@@ -4,10 +4,14 @@
 // path are part of the input because several operations carry their target
 // resource only in the path (e.g. POST /v1/invoices/in_A/void) with empty or
 // constant params - keying on operation+params alone would make two
-// different resources collide on one key. Stripe keys are capped at 255
-// chars and expire after ~24h (docs.stripe.com/api/idempotent_requests).
+// different resources collide on one key. Params are serialized with the same
+// flattenParams() bracket encoding the request body itself is built from, so
+// nested values (line_items, metadata) are fully captured rather than
+// collapsing to "[object Object]". Stripe keys are capped at 255 chars and
+// expire after ~24h (docs.stripe.com/api/idempotent_requests).
 
 import { createHash } from "node:crypto";
+import { flattenParams } from "../stripe/cli.js";
 
 export interface IdempotencyInput {
   /** Stable operation name, e.g. "invoice.void". */
@@ -20,11 +24,7 @@ export interface IdempotencyInput {
 }
 
 export function deriveIdempotencyKey(input: IdempotencyInput): string {
-  const params = input.params ?? {};
-  const sorted = Object.keys(params)
-    .sort()
-    .map((k) => `${k}=${String(params[k])}`)
-    .join("&");
+  const sorted = flattenParams(input.params ?? {}).sort().join("&");
   const digest = createHash("sha256")
     .update(`${input.operation}\n${input.method} ${input.path}\n${sorted}`)
     .digest("hex")

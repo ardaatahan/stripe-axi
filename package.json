@@ -26,6 +26,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "prepare": "npm run build",
     "pretest": "npm run build",
     "test": "vitest run",
     "skill:gen": "node scripts/gen-skill.mjs",

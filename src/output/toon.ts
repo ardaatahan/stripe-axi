@@ -25,22 +25,12 @@ export function toonValue(value: unknown): string {
   return '"' + escaped + '"';
 }
 
-export interface ListOptions {
-  /** Total collection size when rows are a subset; renders "N of M total". */
-  total?: number;
-}
-
 export function emitList(
   name: string,
   rows: Array<Record<string, unknown>>,
   fields: string[],
-  opts: ListOptions = {},
 ): string {
-  const count =
-    opts.total !== undefined && opts.total !== rows.length
-      ? `${rows.length} of ${opts.total} total`
-      : String(rows.length);
-  const header = `${name}[${count}]{${fields.join(",")}}:`;
+  const header = `${name}[${rows.length}]{${fields.join(",")}}:`;
   const lines = rows.map(
     (row) => "  " + fields.map((f) => toonValue(row[f])).join(","),
   );

@@ -12,7 +12,7 @@ AXI-compliant CLI for Stripe — inspect payments, customers, subscriptions, inv
 - **Read-only by default.** Every list/detail/balance/events command only reads data.
 - **Every mutating command dry-runs by default.** It prints the exact `stripe` command it would run and does nothing else. Add `--confirm` to actually execute it.
 - **LIVE mode needs a second acknowledgement.** If the active key is `sk_live_`/`rk_live_`, `--confirm` alone is refused — add `--i-understand-this-is-live` too. `--confirm` alone can never move real money in live mode.
-- **Idempotency-Key on every write**, derived deterministically from the command and its parameters, so re-running an identical `--confirm` can't double-charge.
+- **Idempotency-Key on every mutating POST**, derived deterministically from the command, the exact request it makes and its parameters, so re-running an identical `--confirm` can't double-charge. The two DELETE writes (`customer rm`, immediate `subscription cancel`) send none: DELETE is idempotent by definition.
 - Refunds and payouts (money leaving the account) are the most guarded commands.
 
 ```

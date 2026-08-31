@@ -2,7 +2,7 @@
 // runs it automatically via `npm test`).
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,5 +46,24 @@ describe("stripe-axi AXI contract", () => {
   it("stderr is silent on success (principle 6)", () => {
     const r = run();
     expect(r.stderr.trim()).toBe("");
+  });
+});
+
+describe("an unbuilt checkout", () => {
+  it("reports the missing build as a structured error instead of a stack trace", () => {
+    // The launcher resolves dist/ relative to itself, so a copy outside the
+    // repo is exactly the state of a checkout that was never built.
+    const unbuilt = mkdtempSync(join(tmpdir(), "stripe-axi-unbuilt-"));
+    try {
+      const launcher = join(unbuilt, "stripe-axi.js");
+      copyFileSync(bin, launcher);
+      const r = spawnSync(process.execPath, [launcher, "balance"], { encoding: "utf8" });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain("error: stripe-axi is not built");
+      expect(r.stdout).toContain("suggestion: run 'npm run build'");
+      expect(r.stderr).not.toContain("ERR_MODULE_NOT_FOUND");
+    } finally {
+      rmSync(unbuilt, { recursive: true, force: true });
+    }
   });
 });

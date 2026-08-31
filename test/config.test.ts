@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseKey } from "../src/stripe/config.js";
 import { AxiError } from "../src/output/errors.js";
 
@@ -52,17 +55,36 @@ describe("parseKey", () => {
 
 describe("loadKey precedence", () => {
   const ORIGINAL_ENV = process.env.STRIPE_API_KEY;
+  const ORIGINAL_HOME = process.env.HOME;
+  let home: string;
 
+  // HOME is redirected to an empty temp dir so a developer's real
+  // ~/.config/stripe-axi/credentials cannot decide the outcome, and the module
+  // is reloaded because CONFIG_PATH is resolved once at import time.
   beforeEach(() => {
     delete process.env.STRIPE_API_KEY;
+    home = mkdtempSync(join(tmpdir(), "stripe-axi-home-"));
+    process.env.HOME = home;
+    vi.resetModules();
   });
 
   afterEach(() => {
     if (ORIGINAL_ENV === undefined) delete process.env.STRIPE_API_KEY;
     else process.env.STRIPE_API_KEY = ORIGINAL_ENV;
+    if (ORIGINAL_HOME === undefined) delete process.env.HOME;
+    else process.env.HOME = ORIGINAL_HOME;
+    rmSync(home, { recursive: true, force: true });
   });
 
-  it("prefers STRIPE_API_KEY over the config file when both could apply", async () => {
+  async function writeCredentials(contents: string) {
+    const { CONFIG_PATH } = await import("../src/stripe/config.js");
+    mkdirSync(dirname(CONFIG_PATH), { recursive: true });
+    writeFileSync(CONFIG_PATH, contents);
+    expect(CONFIG_PATH.startsWith(home)).toBe(true);
+  }
+
+  it("prefers STRIPE_API_KEY over the config file when both are set", async () => {
+    await writeCredentials("STRIPE_API_KEY=sk_test_filekey12345678\n");
     process.env.STRIPE_API_KEY = "sk_test_envkey123456789";
     const { loadKey } = await import("../src/stripe/config.js");
     const { info, source } = loadKey();
@@ -70,10 +92,16 @@ describe("loadKey precedence", () => {
     expect(info?.key).toBe("sk_test_envkey123456789");
   });
 
+  it("falls back to the credentials file when the env var is unset", async () => {
+    await writeCredentials("STRIPE_API_KEY=sk_test_filekey12345678\n");
+    const { loadKey } = await import("../src/stripe/config.js");
+    const { info, source } = loadKey();
+    expect(source).toBe("config");
+    expect(info?.key).toBe("sk_test_filekey12345678");
+  });
+
   it("reports no key found when neither source is set", async () => {
-    const { loadKey, CONFIG_PATH } = await import("../src/stripe/config.js");
-    const { existsSync } = await import("node:fs");
-    if (existsSync(CONFIG_PATH)) return; // don't assert away a real local config file
+    const { loadKey } = await import("../src/stripe/config.js");
     const { info, source } = loadKey();
     expect(info).toBeNull();
     expect(source).toBe("none");

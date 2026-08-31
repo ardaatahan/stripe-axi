@@ -38,7 +38,11 @@ created=$(date +%s)
 if [ -n "$STRIPE_AXI_STUB_OLD_CREATED" ]; then
   created=$((created - 86400))
 fi
-printf '{"id":"obj_stub_1","object":"stub","created":%s,"amount":500,"amount_captured":500,"currency":"usd","status":"succeeded","active":true,"deleted":true,"url":"https://example.com/stub","email":"stub@example.com","cancel_at_period_end":false,"available":[{"amount":1000,"currency":"usd"}],"data":[]}\\n' "$created"
+data='[]'
+if [ -n "$STRIPE_AXI_STUB_LIST_ROWS" ]; then
+  data='[{"id":"ch_stub_1","amount":500,"currency":"usd","status":"succeeded","created":'"$created"'}]'
+fi
+printf '{"id":"obj_stub_1","object":"stub","created":%s,"amount":500,"amount_captured":500,"currency":"usd","status":"succeeded","active":true,"deleted":true,"url":"https://example.com/stub","email":"stub@example.com","cancel_at_period_end":false,"available":[{"amount":1000,"currency":"usd"}],"data":%s}\\n' "$created" "$data"
 `;
 
 const sandbox = mkdtempSync(join(tmpdir(), "stripe-axi-e2e-"));
@@ -65,6 +69,8 @@ interface RunOptions {
   path?: string;
   /** Backdate the stub's `created` to simulate an idempotent replay. */
   oldCreated?: boolean;
+  /** Make the stub answer list requests with one row instead of none. */
+  listRows?: boolean;
 }
 
 function runWith(env: Record<string, string>, opts: RunOptions, args: string[]) {
@@ -79,6 +85,7 @@ function runWith(env: Record<string, string>, opts: RunOptions, args: string[]) 
       PATH: opts.path ?? stubPath,
       STRIPE_AXI_STUB_LOG: log,
       STRIPE_AXI_STUB_OLD_CREATED: opts.oldCreated ? "1" : "",
+      STRIPE_AXI_STUB_LIST_ROWS: opts.listRows ? "1" : "",
       ...env,
     },
   });
@@ -129,6 +136,12 @@ describe("safety gate: dry-run by default (no --confirm)", () => {
   it("prints the equivalent command without ever exposing the key", () => {
     const r = run({ STRIPE_API_KEY: TEST_KEY }, "refund", "ch_123", "--amount", "500");
     expect(r.stdout).toContain("STRIPE_API_KEY=<redacted> stripe post /v1/refunds");
+    expect(r.stdout).not.toContain(TEST_KEY);
+  });
+
+  it("renders a value containing a space as one shell-quoted token", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "customer", "add", "--name", "Jane Doe");
+    expect(r.stdout).toContain("-d 'name=Jane Doe'");
     expect(r.stdout).not.toContain(TEST_KEY);
   });
 });
@@ -197,6 +210,64 @@ describe("safety gate: read commands never require --confirm", () => {
     expect(r.status).toBe(0);
     expect(r.invocations).toEqual(["get /v1/balance --color off"]);
     expect(r.stdout).not.toContain("dry-run");
+  });
+});
+
+describe("mode is surfaced on every invocation", () => {
+  const KEYS = [
+    { label: "TEST", key: TEST_KEY },
+    { label: "LIVE", key: LIVE_KEY },
+  ];
+
+  it.each(KEYS)("shows mode $label above a list that has results", ({ label, key }) => {
+    const r = runWith({ STRIPE_API_KEY: key }, { listRows: true }, ["charges"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(`mode: ${label}`);
+    expect(r.stdout).toContain("charges[1]{");
+  });
+
+  it.each(KEYS)("shows mode $label on an empty list", ({ label, key }) => {
+    const r = run({ STRIPE_API_KEY: key }, "charges");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(`mode: ${label}`);
+    expect(r.stdout).toContain("charges: 0 results");
+  });
+
+  it.each(KEYS)("shows mode $label on a detail command", ({ label, key }) => {
+    const r = run({ STRIPE_API_KEY: key }, "charge", "ch_123");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(`mode: ${label}`);
+  });
+});
+
+describe("resource IDs are validated before they reach an API path", () => {
+  const MALICIOUS = "cus_1/../../v1/subscriptions/sub_9";
+
+  it("refuses a path-traversing ID on a gated write without invoking stripe", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "customer", "rm", MALICIOUS, "--confirm");
+    expect(r.status).toBe(2);
+    expect(r.stdout).toContain("error: invalid id");
+    expect(r.invocations).toEqual([]);
+  });
+
+  it("refuses a path-traversing ID on a read command without invoking stripe", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "charge", MALICIOUS);
+    expect(r.status).toBe(2);
+    expect(r.stdout).toContain("error: invalid id");
+    expect(r.invocations).toEqual([]);
+  });
+
+  it("refuses a query-string ID on the refund command without invoking stripe", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "refund", "ch_1?expand=foo", "--confirm");
+    expect(r.status).toBe(2);
+    expect(r.stdout).toContain("error: invalid id");
+    expect(r.invocations).toEqual([]);
+  });
+
+  it("still accepts a normal Stripe ID", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "charge", "ch_3Nk1ABc-de.f");
+    expect(r.status).toBe(0);
+    expect(r.invocations).toEqual(["get /v1/charges/ch_3Nk1ABc-de.f --color off"]);
   });
 });
 

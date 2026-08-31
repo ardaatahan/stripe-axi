@@ -86,6 +86,21 @@ describe("renderCliCommand", () => {
     expect(rendered).toContain("<redacted>");
     expect(rendered).toContain("STRIPE_API_KEY=<redacted> stripe post /v1/refunds");
   });
+
+  it("shell-quotes values so the printed command runs as one token", () => {
+    const rendered = renderCliCommand({ method: "POST", path: "/v1/customers", params: { name: "Jane Doe" } });
+    expect(rendered).toContain("-d 'name=Jane Doe'");
+  });
+
+  it("escapes a value containing a single quote", () => {
+    const rendered = renderCliCommand({ method: "POST", path: "/v1/customers", params: { name: "O'Hara Ltd" } });
+    expect(rendered).toContain("-d 'name=O'\\''Hara Ltd'");
+  });
+
+  it("leaves ordinary tokens unquoted", () => {
+    const rendered = renderCliCommand({ method: "POST", path: "/v1/refunds", params: { charge: "ch_1" } });
+    expect(rendered).toContain("-d charge=ch_1");
+  });
 });
 
 describe("stripeCliRequest", () => {
