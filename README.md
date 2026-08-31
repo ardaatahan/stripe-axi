@@ -86,7 +86,7 @@ Read-only (no confirmation needed):
 | `stripe-axi payout <id>` | Show a single payout |
 | `stripe-axi products [--active true\|false]` | List products |
 | `stripe-axi product <id>` | Show a single product |
-| `stripe-axi prices [--product <id>]` | List prices |
+| `stripe-axi prices [--product <id>] [--active true\|false]` | List prices |
 | `stripe-axi price <id>` | Show a single price |
 | `stripe-axi events [--type <type>]` | List recent events (great for debugging) |
 | `stripe-axi event <id>` | Show a single event |
@@ -104,12 +104,14 @@ Gated (dry-run by default; see [Money & live mode](#money--live-mode--handle-wit
 | `stripe-axi payment cancel <id> [--reason <r>] --confirm` | Cancel a payment intent |
 | `stripe-axi customer add [--email] [--name] [--description] --confirm` | Create a customer |
 | `stripe-axi customer rm <id> --confirm` | Delete a customer |
-| `stripe-axi subscription cancel <id> [--at-period-end] --confirm` | Cancel a subscription |
+| `stripe-axi subscription cancel <id> [--at-period-end] [--invoice-now] [--prorate] --confirm` | Cancel a subscription immediately, or schedule it to cancel at period end |
 | `stripe-axi invoice void <id> --confirm` | Void an open invoice |
-| `stripe-axi refund <charge-or-pi-id> [--amount N] --confirm` | **Refund** (moves money out) |
+| `stripe-axi refund <charge-or-pi-id> [--amount N] [--reason <r>] --confirm` | **Refund** (moves money out) |
 | `stripe-axi payout create --amount N --currency usd --confirm` | **Create a payout** (moves money out - most guarded) |
-| `stripe-axi product update <id> [--name] [--active] --confirm` | Update a product |
+| `stripe-axi product update <id> [--name] [--description] [--active] --confirm` | Update a product |
 | `stripe-axi price update <id> [--active] [--nickname] --confirm` | Update a price (amount is immutable by design) |
+
+Every list command also takes `--limit N` (default 10, max 100), `--starting-after <id>` to paginate, and `--fields a,b,c` to pick the columns you want (`--help` lists the available ones for that resource). When more results exist, the output suggests the exact next-page command with your filters preserved.
 
 ### Not in v1: initiating charges or billing
 
