@@ -96,7 +96,13 @@ export const subscriptionCancel = makeGatedCommand({
     };
   },
   onSuccess: (result, keyInfo) => {
-    print(`canceled: subscription ${result.id} (mode ${keyInfo.mode.toUpperCase()})`);
+    const mode = keyInfo.mode.toUpperCase();
+    if (result.cancel_at_period_end === true && result.status !== "canceled") {
+      const until = typeof result.status === "string" ? ` - still ${result.status} until then` : "";
+      print(`scheduled: subscription ${result.id} cancels at period end${until} (mode ${mode})`);
+    } else {
+      print(`canceled: subscription ${result.id} (mode ${mode})`);
+    }
     print(emitKV([["status", result.status], ["cancel_at_period_end", result.cancel_at_period_end]]));
   },
 });

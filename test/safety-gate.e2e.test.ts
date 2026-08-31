@@ -88,7 +88,13 @@ more=false
 if [ -n "$STRIPE_AXI_STUB_HAS_MORE" ]; then
   more=true
 fi
-printf '{"id":"obj_stub_1","object":"stub","created":%s,"amount":500,"amount_captured":500,"currency":"usd","status":"succeeded","active":true,"deleted":true,"url":"https://example.com/stub","email":"stub@example.com","cancel_at_period_end":false,"available":[{"amount":1000,"currency":"usd"}],"has_more":%s,"data":%s}\\n' "$created" "$more" "$data"
+status=succeeded
+cancel_at_period_end=false
+if [ -n "$STRIPE_AXI_STUB_CANCEL_SCHEDULED" ]; then
+  status=active
+  cancel_at_period_end=true
+fi
+printf '{"id":"obj_stub_1","object":"stub","created":%s,"amount":500,"amount_captured":500,"currency":"usd","status":"%s","active":true,"deleted":true,"url":"https://example.com/stub","email":"stub@example.com","cancel_at_period_end":%s,"available":[{"amount":1000,"currency":"usd"}],"has_more":%s,"data":%s}\\n' "$created" "$status" "$cancel_at_period_end" "$more" "$data"
 `;
 
 const sandbox = mkdtempSync(join(tmpdir(), "stripe-axi-e2e-"));
@@ -127,6 +133,8 @@ interface RunOptions {
   hasMore?: boolean;
   /** Make list responses ~200KB, to exercise stdout flushing. */
   bigList?: boolean;
+  /** Answer as a subscription that is still active with cancellation scheduled. */
+  cancelScheduled?: boolean;
 }
 
 function runWith(env: Record<string, string>, opts: RunOptions, args: string[]) {
@@ -147,6 +155,7 @@ function runWith(env: Record<string, string>, opts: RunOptions, args: string[]) 
       STRIPE_AXI_STUB_REPLAY_HEADER: opts.replayHeader ?? "",
       STRIPE_AXI_STUB_HAS_MORE: opts.hasMore ? "1" : "",
       STRIPE_AXI_STUB_BIG_LIST: opts.bigList ? "1" : "",
+      STRIPE_AXI_STUB_CANCEL_SCHEDULED: opts.cancelScheduled ? "1" : "",
       ...env,
     },
   });
@@ -596,6 +605,27 @@ describe("subscription cancel flag combinations", () => {
     const r = run({ STRIPE_API_KEY: TEST_KEY }, "subscription", "cancel", "sub_1", "--at-period-end", "--confirm");
     expect(r.status).toBe(0);
     expect(r.invocations[0]).toContain("-d cancel_at_period_end=true");
+  });
+
+  // Stripe answers a period-end cancel with the subscription still live, so
+  // claiming it was canceled would tell an agent billing has already stopped.
+  it("reports a scheduled cancel as scheduled, not canceled", () => {
+    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { cancelScheduled: true }, [
+      "subscription", "cancel", "sub_1", "--at-period-end", "--confirm",
+    ]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("scheduled: subscription obj_stub_1 cancels at period end");
+    expect(r.stdout).toContain("still active until then");
+    expect(r.stdout).not.toContain("canceled: subscription");
+    expect(r.stdout).toContain("cancel_at_period_end: true");
+    expect(parseToon(r.stdout).ok).toBe(true);
+  });
+
+  it("still reports an immediate cancel as canceled", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "subscription", "cancel", "sub_1", "--confirm");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("canceled: subscription obj_stub_1");
+    expect(r.stdout).not.toContain("scheduled:");
   });
 });
 
