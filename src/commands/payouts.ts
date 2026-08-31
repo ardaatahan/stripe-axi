@@ -75,6 +75,7 @@ export const payoutCreate = makeGatedCommand({
       path: "/v1/payouts",
       params: { amount, currency },
       movesMoney: true,
+      createsObject: true,
     };
   },
   onSuccess: (result, keyInfo) => {

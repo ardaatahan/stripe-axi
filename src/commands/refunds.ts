@@ -78,6 +78,7 @@ export const refundCreate: CommandModule = {
         path: "/v1/refunds",
         params,
         movesMoney: true,
+        createsObject: true,
       },
       (result) => {
         print(`refunded: ${result.id} (mode ${keyInfo.mode.toUpperCase()})`);

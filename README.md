@@ -12,7 +12,8 @@ stripe-axi is a token-efficient alternative to both the raw Stripe CLI and the [
 2. **Every mutating command dry-runs by default.** Without `--confirm`, it prints exactly what would happen — the equivalent `stripe` command, mode, and parameters — and makes no call at all. Nothing mutates until you pass `--confirm`.
 3. **LIVE mode requires a second, explicit acknowledgement.** The active mode (TEST or LIVE) is detected from your key's prefix and shown on every invocation. If the key is `sk_live_`/`rk_live_`, `--confirm` alone is refused — you must also pass `--i-understand-this-is-live`. `--confirm` alone can never execute a write in live mode.
 4. **Refunds and payouts (money leaving the account) are the most guarded commands** — both require `--confirm`, and in live mode, `--i-understand-this-is-live` too.
-5. **Every write carries a deterministic Idempotency-Key**, derived from the command and its exact parameters. Re-running an identical `--confirm` invocation (e.g. after a network hiccup) reuses the same key, so Stripe treats it as a retry rather than a new charge — it cannot double-refund or double-payout.
+5. **Every write carries a deterministic Idempotency-Key**, derived from the command, the exact API request it makes (method and path, so two different invoices or charges never share a key), and its parameters. Re-running an identical `--confirm` invocation (e.g. after a network hiccup) reuses the same key, so Stripe treats it as a retry rather than a new charge — it cannot double-refund or double-payout.
+6. **A replayed write says so.** Because of (5), deliberately repeating an identical creation within Stripe's ~24h key window returns the first result instead of executing again. When that happens the output is labelled `REPLAY of a prior identical operation (not freshly executed)` rather than reading like a fresh success, so a repeated refund can never be mistaken for a second one. To perform a genuinely separate operation, change a parameter.
 
 Example of the dry-run output:
 
@@ -20,7 +21,7 @@ Example of the dry-run output:
 $ stripe-axi refund ch_123 --amount 500
 dry-run: refund ch_123 amount=500 (not executed — pass --confirm to run) — this MOVES MONEY when executed
 mode: TEST
-command: stripe post /v1/refunds --color off --confirm -d amount=500 -d charge=ch_123 -i stripe-axi_refund.create_4100... --api-key <redacted>
+command: STRIPE_API_KEY=<redacted> stripe post /v1/refunds --color off --confirm -d amount=500 -d charge=ch_123 -i stripe-axi_refund.create_4100...
 help[1]:
   re-run with --confirm to execute
 ```
@@ -111,6 +112,16 @@ Gated (dry-run by default; see [Money & live mode](#money--live-mode--handle-wit
 | `stripe-axi checkout create --price <id> --success-url <url> --confirm` | Create a Checkout Session |
 | `stripe-axi payment-link create --price <id> --confirm` | Create a payment link |
 
+### Not in v1: initiating charges or billing
+
+**stripe-axi v1 is deliberately inspect + reverse/stop only.** It has no command that directly charges a customer or starts new billing, and that omission is a scope decision rather than a gap:
+
+- no `charge create` / `payment_intent create`
+- no `subscription create` / `subscription update`
+- no `invoice create`
+
+The mutating surface is limited to inspecting, reversing (refund), completing an already-authorized charge (capture), stopping (cancel, void, delete), and creating the hosted pages a customer must act on themselves (Checkout Session, payment link) — none of which pull money on their own. An agent driving this tool therefore cannot initiate a charge, however it is prompted. These commands may be added later as a deliberate follow-up, behind the same gate.
+
 Every command supports `--help` with flags, defaults, and examples. All output is [TOON](https://axi.md) on stdout. Exit codes: `0` success/no-op, `1` error, `2` usage error.
 
 Examples:
@@ -138,7 +149,7 @@ npm test                        # offline test suite (no Stripe CLI or key requi
 npm run skill:gen               # regenerate skills/stripe-axi/SKILL.md (commit it)
 ```
 
-The offline test suite (82 tests) covers request/argument construction, Idempotency-Key derivation, key/mode parsing, and — most importantly — the safety gate itself: it proves, by running the real built binary in an environment with no `stripe` binary installed, that every gated command (a) makes no attempt to execute without `--confirm`, (b) refuses `--confirm` alone in LIVE mode, and (c) does attempt real execution once fully acknowledged (`--confirm --i-understand-this-is-live`).
+The offline test suite covers request/argument construction, Idempotency-Key derivation, TOON output, key/mode parsing, and — most importantly — the safety gate itself: it runs the real built binary against a stub `stripe` script placed first on `PATH`, which logs every invocation, and proves from that log that each gated command (a) never invokes the Stripe CLI without `--confirm`, (b) refuses `--confirm` alone in LIVE mode, and (c) does reach real execution once fully acknowledged (`--confirm --i-understand-this-is-live`). No network, no real Stripe CLI, and no key is needed, and the result is the same whether or not you have the Stripe CLI installed.
 
 For a live smoke test once you have a Stripe CLI and a **TEST** key installed:
 

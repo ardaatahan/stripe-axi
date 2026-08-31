@@ -40,6 +40,7 @@ export const paymentLinkCreate = makeGatedCommand({
       method: "POST",
       path: "/v1/payment_links",
       params: { line_items: [{ price, quantity }] },
+      createsObject: true,
     };
   },
   onSuccess: (result, keyInfo) => {

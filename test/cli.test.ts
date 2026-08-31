@@ -2,13 +2,24 @@
 // runs it automatically via `npm test`).
 
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 const bin = fileURLToPath(new URL("../bin/stripe-axi.js", import.meta.url));
 
+// These assert the AXI contract, not Stripe behaviour, so the binary must see
+// no key: an exported STRIPE_API_KEY (or a real ~/.config/stripe-axi/credentials)
+// would otherwise send a developer's own account data through these runs.
+const noKeyHome = mkdtempSync(join(tmpdir(), "stripe-axi-cli-"));
+afterAll(() => rmSync(noKeyHome, { recursive: true, force: true }));
+
 function run(...args: string[]) {
-  return spawnSync("node", [bin, ...args], { encoding: "utf8" });
+  const env = { ...process.env, HOME: noKeyHome };
+  delete env.STRIPE_API_KEY;
+  return spawnSync(process.execPath, [bin, ...args], { encoding: "utf8", env });
 }
 
 describe("stripe-axi AXI contract", () => {

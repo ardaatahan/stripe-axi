@@ -75,6 +75,7 @@ export const customerAdd = makeGatedCommand({
       method: "POST",
       path: "/v1/customers",
       params: { email, name, description },
+      createsObject: true,
     };
   },
   onSuccess: (result, keyInfo) => {

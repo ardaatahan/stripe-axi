@@ -7,10 +7,17 @@
 // — using one fully-verified code path for every resource keeps this
 // correct and testable instead of guessing at ~15 resources' verb sets.
 //
-// `--confirm` is passed to the underlying `stripe` process on every call so
-// its own interactive "are you sure?" prompt never blocks a non-interactive
-// run — that is a DIFFERENT flag from stripe-axi's own `--confirm` (see
-// src/safety/gate.ts), which is what decided to invoke the CLI at all.
+// `--confirm` is passed to the underlying `stripe` process on mutating
+// (POST/DELETE) calls only, so its own interactive "are you sure?" prompt
+// never blocks a non-interactive run — that is a DIFFERENT flag from
+// stripe-axi's own `--confirm` (see src/safety/gate.ts), which is what
+// decided to invoke the CLI at all. `stripe get` never prompts and does not
+// register the flag, so sending it there would be rejected as an unknown flag.
+//
+// The API key is handed to the child through its environment
+// (STRIPE_API_KEY), never as an argv token: argv is world-readable in the
+// process table on most systems, and a live key must not sit there. This
+// still avoids depending on `stripe login` state.
 
 import { spawn as nodeSpawn } from "node:child_process";
 import { AxiError } from "../output/errors.js";
@@ -58,7 +65,8 @@ export function flattenParams(params: Record<string, unknown>, prefix = ""): str
 
 export function buildCliArgs(req: Omit<CliRequest, "apiKey">): string[] {
   const verb = req.method === "GET" ? "get" : req.method === "POST" ? "post" : "delete";
-  const args = [verb, req.path, "--color", "off", "--confirm"];
+  const args = [verb, req.path, "--color", "off"];
+  if (req.method !== "GET") args.push("--confirm");
   for (const p of flattenParams(req.params ?? {})) args.push("-d", p);
   if (req.method === "POST" && req.idempotencyKey) args.push("-i", req.idempotencyKey);
   return args;
@@ -66,7 +74,7 @@ export function buildCliArgs(req: Omit<CliRequest, "apiKey">): string[] {
 
 /** Renders the equivalent shell command for dry-run display — the API key is never included. */
 export function renderCliCommand(req: Omit<CliRequest, "apiKey">): string {
-  return ["stripe", ...buildCliArgs(req), "--api-key", "<redacted>"].join(" ");
+  return ["STRIPE_API_KEY=<redacted>", "stripe", ...buildCliArgs(req)].join(" ");
 }
 
 export interface CliResult {
@@ -75,22 +83,39 @@ export interface CliResult {
   code: number | null;
 }
 
-/** Isolated so tests can inject a fake spawn function without a real `stripe` binary. */
-export function execStripeCli(args: string[], spawnFn: SpawnFn = nodeSpawn): Promise<CliResult> {
+/**
+ * Isolated so tests can inject a fake spawn function without a real `stripe`
+ * binary. `apiKey`, when given, is passed to the child via STRIPE_API_KEY
+ * rather than argv. Output chunks are concatenated as bytes and decoded once
+ * at the end: a multi-byte UTF-8 character split across a pipe chunk boundary
+ * would otherwise decode to replacement characters and break JSON.parse.
+ */
+export function execStripeCli(args: string[], spawnFn: SpawnFn = nodeSpawn, apiKey?: string): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawnFn(STRIPE_CLI_BIN, args, { stdio: ["ignore", "pipe", "pipe"] });
+      child = spawnFn(STRIPE_CLI_BIN, args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: apiKey ? { ...process.env, STRIPE_API_KEY: apiKey } : process.env,
+      });
     } catch (err) {
       reject(mapSpawnError(err));
       return;
     }
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    const collect = (chunks: Buffer[]) => (d: unknown) =>
+      chunks.push(Buffer.isBuffer(d) ? d : Buffer.from(String(d), "utf8"));
+    child.stdout.on("data", collect(stdout));
+    child.stderr.on("data", collect(stderr));
     child.on("error", (err) => reject(mapSpawnError(err)));
-    child.on("close", (code) => resolve({ stdout, stderr, code }));
+    child.on("close", (code) =>
+      resolve({
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        code,
+      }),
+    );
   });
 }
 
@@ -104,8 +129,7 @@ function mapSpawnError(err: unknown): AxiError {
 }
 
 export async function stripeCliRequest(req: CliRequest, spawnFn?: SpawnFn): Promise<any> {
-  const args = [...buildCliArgs(req), "--api-key", req.apiKey];
-  const result = await execStripeCli(args, spawnFn);
+  const result = await execStripeCli(buildCliArgs(req), spawnFn, req.apiKey);
   const text = result.stdout.trim();
 
   let json: any;

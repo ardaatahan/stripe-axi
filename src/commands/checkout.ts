@@ -67,6 +67,7 @@ export const checkoutCreate = makeGatedCommand({
         customer,
         line_items: [{ price, quantity }],
       },
+      createsObject: true,
     };
   },
   onSuccess: (result, keyInfo) => {

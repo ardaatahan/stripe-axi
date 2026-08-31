@@ -5,11 +5,24 @@ export function print(text: string): void {
   process.stdout.write(text + "\n");
 }
 
+/**
+ * Escapes one value so it can never break the one-record-per-line shape:
+ * anything containing a comma, quote or line break is quoted, with quotes
+ * doubled (CSV style) and line breaks written as \n / \r escapes. Emitting a
+ * raw newline inside a quoted value would still split the record across two
+ * physical lines, and the continuation line is neither a header nor an
+ * indented row — parseToon (and any agent reading stdout) would reject it.
+ */
 export function toonValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   const s = String(value);
-  if (/[,"\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
-  return s;
+  if (!/[,"\r\n\\]/.test(s)) return s;
+  const escaped = s
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '""')
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n");
+  return '"' + escaped + '"';
 }
 
 export interface ListOptions {
@@ -39,8 +52,14 @@ export function emitBlock(name: string, lines: string[]): string {
   return [`${name}[${lines.length}]:`, ...lines.map((l) => "  " + l)].join("\n");
 }
 
+/**
+ * `key: value` lines. Values go through toonValue so a Stripe string
+ * containing a comma, quote or newline (descriptions and customer names are
+ * free-form) stays a single parseable TOON line instead of spilling into
+ * lines that are neither a header nor an indented row.
+ */
 export function emitKV(pairs: Array<[string, unknown]>): string {
-  return pairs.map(([k, v]) => `${k}: ${toonValue(v) === "" ? "" : String(v)}`.trimEnd()).join("\n");
+  return pairs.map(([k, v]) => `${k}: ${toonValue(v)}`.trimEnd()).join("\n");
 }
 
 /**
