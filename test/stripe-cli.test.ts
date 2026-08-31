@@ -97,6 +97,12 @@ describe("renderCliCommand", () => {
     expect(rendered).toContain("-d 'name=O'\\''Hara Ltd'");
   });
 
+  it("keeps a value containing a newline on one line", () => {
+    const rendered = renderCliCommand({ method: "POST", path: "/v1/customers", params: { description: "one\ntwo" } });
+    expect(rendered.split("\n")).toHaveLength(1);
+    expect(rendered).toContain("-d $'description=one\\ntwo'");
+  });
+
   it("leaves ordinary tokens unquoted", () => {
     const rendered = renderCliCommand({ method: "POST", path: "/v1/refunds", params: { charge: "ch_1" } });
     expect(rendered).toContain("-d charge=ch_1");

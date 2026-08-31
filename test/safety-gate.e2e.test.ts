@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
+import { parseToon } from "../src/output/toon.js";
 
 const bin = fileURLToPath(new URL("../bin/stripe-axi.js", import.meta.url));
 
@@ -37,6 +38,10 @@ fi
 created=$(date +%s)
 if [ -n "$STRIPE_AXI_STUB_OLD_CREATED" ]; then
   created=$((created - 86400))
+fi
+if [ -n "$STRIPE_AXI_STUB_FAIL" ]; then
+  printf 'Error: unknown flag: --nope\nUsage:\n  stripe post <path> [flags]\n' >&2
+  exit 1
 fi
 data='[]'
 if [ -n "$STRIPE_AXI_STUB_LIST_ROWS" ]; then
@@ -71,6 +76,8 @@ interface RunOptions {
   oldCreated?: boolean;
   /** Make the stub answer list requests with one row instead of none. */
   listRows?: boolean;
+  /** Make the stub fail with a multi-line cobra-style usage error. */
+  fail?: boolean;
 }
 
 function runWith(env: Record<string, string>, opts: RunOptions, args: string[]) {
@@ -86,6 +93,7 @@ function runWith(env: Record<string, string>, opts: RunOptions, args: string[]) 
       STRIPE_AXI_STUB_LOG: log,
       STRIPE_AXI_STUB_OLD_CREATED: opts.oldCreated ? "1" : "",
       STRIPE_AXI_STUB_LIST_ROWS: opts.listRows ? "1" : "",
+      STRIPE_AXI_STUB_FAIL: opts.fail ? "1" : "",
       ...env,
     },
   });
@@ -101,6 +109,27 @@ function runWith(env: Record<string, string>, opts: RunOptions, args: string[]) 
 
 function run(env: Record<string, string>, ...args: string[]) {
   return runWith(env, {}, args);
+}
+
+/** Runs a printed dry-run command line through a real shell against the stub. */
+function runShell(command: string) {
+  const log = join(sandbox, `invocations-${runCount++}.log`);
+  const result = spawnSync("/bin/sh", ["-c", command], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: sandbox, PATH: stubPath, STRIPE_AXI_STUB_LOG: log },
+  });
+  const lines = existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : [];
+  return { ...result, invocations: lines.filter((l) => !l.startsWith("key=")) };
+}
+
+/**
+ * The `stripe ...` line of a dry-run plan, with the redacted key placeholder
+ * filled in - the one substitution a user makes before pasting it.
+ */
+function dryRunCommand(stdout: string): string {
+  const line = stdout.split("\n").find((l) => l.trim().startsWith("STRIPE_API_KEY=<redacted>"));
+  expect(line).toBeDefined();
+  return line!.trim().replace("STRIPE_API_KEY=<redacted>", `STRIPE_API_KEY=${TEST_KEY}`);
 }
 
 interface GatedCase {
@@ -120,8 +149,6 @@ const GATED_COMMANDS: GatedCase[] = [
   { label: "payout create", args: ["payout", "create", "--amount", "1000"] },
   { label: "product update", args: ["product", "update", "prod_123", "--active", "true"] },
   { label: "price update", args: ["price", "update", "price_123", "--active", "true"] },
-  { label: "checkout create", args: ["checkout", "create", "--price", "price_123", "--success-url", "https://example.com/s"] },
-  { label: "payment-link create", args: ["payment-link", "create", "--price", "price_123"] },
 ];
 
 describe("safety gate: dry-run by default (no --confirm)", () => {
@@ -143,6 +170,32 @@ describe("safety gate: dry-run by default (no --confirm)", () => {
     const r = run({ STRIPE_API_KEY: TEST_KEY }, "customer", "add", "--name", "Jane Doe");
     expect(r.stdout).toContain("-d 'name=Jane Doe'");
     expect(r.stdout).not.toContain(TEST_KEY);
+  });
+
+  it("stays parseable when a value contains a newline", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "customer", "add", "--name", "Line one\nLine two");
+    expect(r.status).toBe(0);
+    expect(r.invocations).toEqual([]);
+    expect(parseToon(r.stdout).ok).toBe(true);
+  });
+
+  // The printed command is only useful if pasting it reproduces the exact
+  // request, so run it for real: shell quoting and TOON escaping must not
+  // corrupt each other.
+  it.each([
+    { label: "a space", name: "Jane Doe" },
+    { label: "an apostrophe", name: "O'Hara Ltd" },
+    { label: "a comma and a quote", name: 'Doe, "Jane"' },
+  ])("prints a command that reconstructs a name with $label", ({ name }) => {
+    const dry = run({ STRIPE_API_KEY: TEST_KEY }, "customer", "add", "--name", name);
+    expect(dry.status).toBe(0);
+    expect(dry.invocations).toEqual([]);
+    expect(parseToon(dry.stdout).ok).toBe(true);
+
+    const replay = runShell(dryRunCommand(dry.stdout));
+    expect(replay.status).toBe(0);
+    expect(replay.invocations).toHaveLength(1);
+    expect(replay.invocations[0]).toContain(`-d name=${name}`);
   });
 });
 
@@ -277,6 +330,57 @@ describe("the Stripe CLI is missing", () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toContain("is not installed or not on PATH");
     expect(r.stdout).toContain("brew install stripe/stripe-cli/stripe");
+  });
+
+  it("still shows the mode and the command inventory on the home view", () => {
+    const r = runWith({ STRIPE_API_KEY: LIVE_KEY }, { path: emptyDir }, []);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("the official Stripe CLI is not installed");
+    expect(r.stdout).toContain("brew install stripe/stripe-cli/stripe");
+    expect(r.stdout).toContain("mode: LIVE");
+    expect(r.stdout).toMatch(/^commands\[\d+\]\{/m);
+    expect(r.stdout).not.toContain(LIVE_KEY);
+    expect(parseToon(r.stdout).ok).toBe(true);
+  });
+});
+
+describe("surplus positional arguments are refused", () => {
+  it("refuses an extra argument on a gated write instead of silently dropping it", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "charge", "capture", "ch_1", "500", "--confirm");
+    expect(r.status).toBe(2);
+    expect(r.stdout).toContain("unexpected argument '500'");
+    expect(r.invocations).toEqual([]);
+  });
+
+  it("refuses a second ID on refund", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "refund", "ch_1", "ch_2", "--confirm");
+    expect(r.status).toBe(2);
+    expect(r.stdout).toContain("unexpected argument 'ch_2'");
+    expect(r.invocations).toEqual([]);
+  });
+
+  it("refuses a stray argument on a read command", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "charges", "cus_123");
+    expect(r.status).toBe(2);
+    expect(r.stdout).toContain("unexpected argument 'cus_123'");
+    expect(r.stdout).toContain("--customer");
+    expect(r.invocations).toEqual([]);
+  });
+
+  it("still accepts the documented argument count", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "charge", "capture", "ch_1");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("dry-run:");
+  });
+});
+
+describe("a failing Stripe CLI keeps the stdout contract", () => {
+  it("renders a multi-line CLI error as parseable TOON", () => {
+    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { fail: true }, ["balance"]);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("error:");
+    expect(r.stdout).toContain("unknown flag: --nope");
+    expect(parseToon(r.stdout).ok).toBe(true);
   });
 });
 

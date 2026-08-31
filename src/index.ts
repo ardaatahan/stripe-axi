@@ -12,8 +12,8 @@ import { productsList, productDetail, productUpdate } from "./commands/products.
 import { pricesList, priceDetail, priceUpdate } from "./commands/prices.js";
 import { eventsList, eventDetail } from "./commands/events.js";
 import { disputesList, disputeDetail } from "./commands/disputes.js";
-import { checkoutSessionsList, checkoutCreate } from "./commands/checkout.js";
-import { paymentLinksList, paymentLinkCreate } from "./commands/payment-links.js";
+import { checkoutSessionsList } from "./commands/checkout.js";
+import { paymentLinksList } from "./commands/payment-links.js";
 
 const registry: Registry = {
   tool: "stripe-axi",
@@ -54,9 +54,7 @@ const registry: Registry = {
     disputes: disputesList,
     dispute: disputeDetail,
     "checkout sessions": checkoutSessionsList,
-    "checkout create": checkoutCreate,
     "payment-links": paymentLinksList,
-    "payment-link create": paymentLinkCreate,
   },
   aliases: {},
 };

@@ -7,8 +7,10 @@
 // different resources collide on one key. Params are serialized with the same
 // flattenParams() bracket encoding the request body itself is built from, so
 // nested values (line_items, metadata) are fully captured rather than
-// collapsing to "[object Object]". Stripe keys are capped at 255 chars and
-// expire after ~24h (docs.stripe.com/api/idempotent_requests).
+// collapsing to "[object Object]", and the hash input is JSON-encoded so a
+// value containing the delimiter can't impersonate a different param set.
+// Stripe keys are capped at 255 chars and expire after ~24h
+// (docs.stripe.com/api/idempotent_requests).
 
 import { createHash } from "node:crypto";
 import { flattenParams } from "../stripe/cli.js";
@@ -24,9 +26,9 @@ export interface IdempotencyInput {
 }
 
 export function deriveIdempotencyKey(input: IdempotencyInput): string {
-  const sorted = flattenParams(input.params ?? {}).sort().join("&");
+  const sorted = flattenParams(input.params ?? {}).sort();
   const digest = createHash("sha256")
-    .update(`${input.operation}\n${input.method} ${input.path}\n${sorted}`)
+    .update(JSON.stringify([input.operation, input.method, input.path, sorted]))
     .digest("hex")
     .slice(0, 40);
   return `stripe-axi_${input.operation}_${digest}`;

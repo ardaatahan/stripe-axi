@@ -1,7 +1,7 @@
 import type { CommandModule } from "../cli/router.js";
 import { emitKV, emitList, print } from "../output/toon.js";
 import { helpBlock } from "../output/suggest.js";
-import { renderHome, rootHelpText } from "../skill/content.js";
+import { commandTable, renderHome, rootHelpText } from "../skill/content.js";
 import { loadKey } from "../stripe/config.js";
 import { isStripeCliInstalled, stripeCliRequest, STRIPE_CLI_INSTALL_HINT } from "../stripe/cli.js";
 import { formatAmount, formatUnixTime } from "../stripe/format.js";
@@ -24,10 +24,21 @@ export const homeCommand: CommandModule = {
     const cliInstalled = await isStripeCliInstalled();
     const { info: keyInfo, source } = loadKey();
 
+    const keySummary = keyInfo
+      ? `${keyInfo.prefix}•••• (from ${source === "env" ? "STRIPE_API_KEY" : "~/.config/stripe-axi/credentials"})`
+      : "none found";
+
     if (!cliInstalled) {
       print("stripe-axi: the official Stripe CLI is not installed");
+      if (keyInfo) {
+        print(emitKV([
+          ["mode", keyInfo.mode.toUpperCase()],
+          ["key", keySummary],
+          ["stripe-cli", "not installed"],
+        ]));
+      }
       print(helpBlock([STRIPE_CLI_INSTALL_HINT]));
-      if (!keyInfo) print(renderHome(process.argv[1] ?? "stripe-axi"));
+      print(keyInfo ? commandTable() : renderHome(process.argv[1] ?? "stripe-axi"));
       return 0;
     }
 
@@ -38,7 +49,7 @@ export const homeCommand: CommandModule = {
 
     print(emitKV([
       ["mode", keyInfo.mode.toUpperCase()],
-      ["key", `${keyInfo.prefix}•••• (from ${source === "env" ? "STRIPE_API_KEY" : "~/.config/stripe-axi/credentials"})`],
+      ["key", keySummary],
       ["stripe-cli", "installed"],
     ]));
 

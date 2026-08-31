@@ -16,7 +16,7 @@ AXI-compliant CLI for Stripe — inspect payments, customers, subscriptions, inv
 - Refunds and payouts (money leaving the account) are the most guarded commands.
 
 ```
-commands[37]{command,summary}:
+commands[35]{command,summary}:
   balance,Available and pending balance by currency
   charges,List charges
   charge <id>,Show a single charge
@@ -51,9 +51,7 @@ commands[37]{command,summary}:
   disputes,List disputes
   dispute <id>,Show a single dispute
   checkout sessions,List Checkout Sessions
-  checkout create,GATED: create a Checkout Session
   payment-links,List payment links
-  payment-link create,GATED: create a payment link
 help[3]:
   export STRIPE_API_KEY=sk_test_... (get one at https://dashboard.stripe.com/apikeys)
   npx -y stripe-axi balance

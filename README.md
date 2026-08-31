@@ -109,8 +109,6 @@ Gated (dry-run by default; see [Money & live mode](#money--live-mode--handle-wit
 | `stripe-axi payout create --amount N --currency usd --confirm` | **Create a payout** (moves money out — most guarded) |
 | `stripe-axi product update <id> [--name] [--active] --confirm` | Update a product |
 | `stripe-axi price update <id> [--active] [--nickname] --confirm` | Update a price (amount is immutable by design) |
-| `stripe-axi checkout create --price <id> --success-url <url> --confirm` | Create a Checkout Session |
-| `stripe-axi payment-link create --price <id> --confirm` | Create a payment link |
 
 ### Not in v1: initiating charges or billing
 
@@ -119,8 +117,9 @@ Gated (dry-run by default; see [Money & live mode](#money--live-mode--handle-wit
 - no `charge create` / `payment_intent create`
 - no `subscription create` / `subscription update`
 - no `invoice create`
+- no `checkout create` (Checkout Session) / `payment-link create`
 
-The mutating surface is limited to inspecting, reversing (refund), completing an already-authorized charge (capture), stopping (cancel, void, delete), and creating the hosted pages a customer must act on themselves (Checkout Session, payment link) — none of which pull money on their own. An agent driving this tool therefore cannot initiate a charge, however it is prompted. These commands may be added later as a deliberate follow-up, behind the same gate.
+The mutating surface is limited to inspecting, reversing (refund), completing an already-authorized charge (capture), stopping (cancel, void, delete), and updating catalog objects (product, price). Nothing in v1 can start a collection of money, including the hosted pages that would invite a customer to pay. Reading existing Checkout Sessions and payment links is supported (`stripe-axi checkout sessions`, `stripe-axi payment-links`); only creating them is deferred. An agent driving this tool therefore cannot initiate a charge, however it is prompted. These commands may be added later as a deliberate follow-up, behind the same gate.
 
 Every command supports `--help` with flags, defaults, and examples. All output is [TOON](https://axi.md) on stdout. Exit codes: `0` success/no-op, `1` error, `2` usage error.
 

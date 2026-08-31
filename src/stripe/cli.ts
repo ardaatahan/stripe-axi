@@ -75,6 +75,16 @@ export function buildCliArgs(req: Omit<CliRequest, "apiKey">): string[] {
 /** Quotes one argv token so the rendered command means the same thing in a shell. */
 function shellQuote(arg: string): string {
   if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(arg)) return arg;
+  if (/[\x00-\x1f]/.test(arg)) {
+    const escaped = arg
+      .replace(/\\/g, "\\\\")
+      .replace(/'/g, "\\'")
+      .replace(/\n/g, "\\n")
+      .replace(/\r/g, "\\r")
+      .replace(/\t/g, "\\t")
+      .replace(/[\x00-\x1f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+    return `$'${escaped}'`;
+  }
   return "'" + arg.replace(/'/g, "'\\''") + "'";
 }
 

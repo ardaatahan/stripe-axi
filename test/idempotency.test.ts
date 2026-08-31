@@ -61,6 +61,16 @@ describe("deriveIdempotencyKey", () => {
     expect(a).not.toBe(b);
   });
 
+  // The flattened params used to be joined with "&", a character that can
+  // appear inside a value: {description: "X&name=Acme"} then serialized
+  // exactly like {description: "X", name: "Acme"}.
+  it("does not let a value containing the delimiter impersonate another param set", () => {
+    const customer = { operation: "customer.create", method: "POST", path: "/v1/customers" };
+    const a = deriveIdempotencyKey({ ...customer, params: { description: "X&name=Acme" } });
+    const b = deriveIdempotencyKey({ ...customer, params: { description: "X", name: "Acme" } });
+    expect(a).not.toBe(b);
+  });
+
   it("stays within Stripe's 255-character idempotency key limit", () => {
     const key = deriveIdempotencyKey({
       operation: "payout.create",

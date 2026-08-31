@@ -90,12 +90,24 @@ export function parseArgs(argv: string[], spec: CommandSpec): Parsed {
   }
 
   if (!help) {
-    const required = (spec.args ?? []).filter((a) => a.required);
+    const accepted = spec.args ?? [];
+    const required = accepted.filter((a) => a.required);
     if (positionals.length < required.length) {
       const missing = required[positionals.length]!;
       throw new UsageError(
         `missing required argument <${missing.name}>${forScope(spec)}`,
         spec.examples[0] ?? `run '${spec.name} --help'`,
+      );
+    }
+    if (positionals.length > accepted.length) {
+      const extra = positionals[accepted.length]!;
+      const takes =
+        accepted.length === 0
+          ? "it takes no positional arguments"
+          : `it takes ${accepted.length}: ${accepted.map((a) => `<${a.name}>`).join(" ")}`;
+      throw new UsageError(
+        `unexpected argument '${extra}'${forScope(spec)}`,
+        `${takes} - pass everything else as a flag (${validFlagsHint(spec)})`,
       );
     }
   }

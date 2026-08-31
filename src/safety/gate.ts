@@ -18,7 +18,7 @@ import type { KeyInfo, KeyMode } from "../stripe/config.js";
 import { renderCliCommand, stripeCliRequest, type CliMethod } from "../stripe/cli.js";
 import { deriveIdempotencyKey } from "./idempotency.js";
 import { UsageError } from "../output/errors.js";
-import { emitKV, print } from "../output/toon.js";
+import { emitBlock, emitKV, print, toonValue } from "../output/toon.js";
 import { helpBlock } from "../output/suggest.js";
 
 export const CONFIRM_FLAG = {
@@ -76,10 +76,10 @@ export interface GateContext {
 
 function printDryRun(plan: PlannedWrite, mode: KeyMode, idempotencyKey: string): void {
   const moneyNote = plan.movesMoney ? " — this MOVES MONEY when executed" : "";
-  print(`dry-run: ${plan.description} (not executed — pass --confirm to run)${moneyNote}`);
-  print(emitKV([
-    ["mode", mode.toUpperCase()],
-    ["command", renderCliCommand({ method: plan.method, path: plan.path, params: plan.params, idempotencyKey })],
+  print(`dry-run: ${toonValue(`${plan.description} (not executed — pass --confirm to run)${moneyNote}`)}`);
+  print(emitKV([["mode", mode.toUpperCase()]]));
+  print(emitBlock("command", [
+    renderCliCommand({ method: plan.method, path: plan.path, params: plan.params, idempotencyKey }),
   ]));
   const next =
     mode === "live"

@@ -5,7 +5,7 @@ import type { CommandModule } from "../cli/router.js";
 import type { ArgSpec, CommandSpec, FlagSpec } from "../cli/spec.js";
 import type { Parsed } from "../cli/args.js";
 import { UsageError } from "../output/errors.js";
-import { emitList, print } from "../output/toon.js";
+import { emitList, print, toonValue } from "../output/toon.js";
 import { helpBlock } from "../output/suggest.js";
 import { requireKey, type KeyInfo } from "../stripe/config.js";
 import { stripeCliRequest } from "../stripe/cli.js";
@@ -86,7 +86,7 @@ export function makeListCommand(cfg: ListConfig): CommandModule {
 
       print(`mode: ${keyInfo.mode.toUpperCase()}`);
       if (rows.length === 0) {
-        print(`${toonName}: 0 results (${cfg.emptyContext(parsed.flags)})`);
+        print(`${toonName}: ${toonValue(`0 results (${cfg.emptyContext(parsed.flags)})`)}`);
         print(helpBlock(cfg.suggestions(parsed.flags, rows)));
         return 0;
       }

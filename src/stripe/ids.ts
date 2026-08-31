@@ -10,7 +10,7 @@ const RESOURCE_ID = /^[A-Za-z0-9_.-]+$/;
 export function assertResourceId(id: string, argName = "id"): string {
   if (!RESOURCE_ID.test(id)) {
     throw new UsageError(
-      `invalid ${argName} ${JSON.stringify(id)}`,
+      `invalid ${argName} '${id}'`,
       "a Stripe resource ID contains only letters, digits, '_', '.' and '-' - copy it from a list command or the dashboard",
     );
   }

@@ -52,18 +52,21 @@ export const COMMANDS: Array<{ command: string; summary: string }> = [
   { command: "disputes", summary: "List disputes" },
   { command: "dispute <id>", summary: "Show a single dispute" },
   { command: "checkout sessions", summary: "List Checkout Sessions" },
-  { command: "checkout create", summary: "GATED: create a Checkout Session" },
   { command: "payment-links", summary: "List payment links" },
-  { command: "payment-link create", summary: "GATED: create a payment link" },
 ];
 
-/** The no-key / static overview: command table plus setup pointer. */
-export function homeBody(tool: string): string {
-  const table = emitList(
+/** The full command inventory, without any setup advice around it. */
+export function commandTable(): string {
+  return emitList(
     "commands",
     COMMANDS.map((c) => ({ command: c.command, summary: c.summary })),
     ["command", "summary"],
   );
+}
+
+/** The no-key / static overview: command table plus setup pointer. */
+export function homeBody(tool: string): string {
+  const table = commandTable();
   const help = helpBlock([
     "export STRIPE_API_KEY=sk_test_... (get one at https://dashboard.stripe.com/apikeys)",
     `${tool} balance`,
