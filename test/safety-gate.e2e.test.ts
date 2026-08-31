@@ -61,6 +61,13 @@ if [ -n "$STRIPE_AXI_STUB_FAIL" ]; then
   esac
   exit 1
 fi
+if [ -n "$STRIPE_AXI_STUB_FAIL_TRACE_ONLY" ]; then
+  printf '> POST https://api.stripe.com/v1/refunds\n' >&2
+  printf '> Authorization: Bearer [REDACTED]\n' >&2
+  printf '< HTTP 401\n' >&2
+  printf '< Request-Id: req_stub\n' >&2
+  exit 1
+fi
 data='[]'
 if [ -n "$STRIPE_AXI_STUB_LIST_ROWS" ]; then
   data='[{"id":"ch_stub_1","amount":500,"currency":"usd","status":"succeeded","created":'"$created"'}]'
@@ -112,6 +119,8 @@ interface RunOptions {
   listRows?: boolean;
   /** Make the stub fail with a multi-line cobra-style usage error. */
   fail?: boolean;
+  /** Make the stub fail writing nothing but a request/response trace. */
+  failTraceOnly?: boolean;
   /** Value of the Idempotency-Replayed response header, or "absent" to omit it. */
   replayHeader?: "true" | "false" | "absent";
   /** Make list responses report has_more. */
@@ -134,6 +143,7 @@ function runWith(env: Record<string, string>, opts: RunOptions, args: string[]) 
       STRIPE_AXI_STUB_OLD_CREATED: opts.oldCreated ? "1" : "",
       STRIPE_AXI_STUB_LIST_ROWS: opts.listRows ? "1" : "",
       STRIPE_AXI_STUB_FAIL: opts.fail ? "1" : "",
+      STRIPE_AXI_STUB_FAIL_TRACE_ONLY: opts.failTraceOnly ? "1" : "",
       STRIPE_AXI_STUB_REPLAY_HEADER: opts.replayHeader ?? "",
       STRIPE_AXI_STUB_HAS_MORE: opts.hasMore ? "1" : "",
       STRIPE_AXI_STUB_BIG_LIST: opts.bigList ? "1" : "",
@@ -523,6 +533,17 @@ describe("a failing Stripe CLI keeps the stdout contract", () => {
     expect(r.stdout).toContain("Invalid API Key provided");
     expect(r.stdout).not.toContain("Authorization:");
     expect(r.stdout).not.toContain("Idempotency-Key:");
+    expect(parseToon(r.stdout).ok).toBe(true);
+  });
+});
+
+describe("a write that fails with only a trace still says why", () => {
+  it("surfaces the HTTP status instead of a bare exit code", () => {
+    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { failTraceOnly: true }, ["refund", "ch_123", "--amount", "500", "--confirm"]);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("HTTP 401");
+    expect(r.stdout).not.toContain("re-run with the same arguments");
+    expect(r.stdout).not.toContain("Authorization:");
     expect(parseToon(r.stdout).ok).toBe(true);
   });
 });

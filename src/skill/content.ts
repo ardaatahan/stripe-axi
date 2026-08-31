@@ -12,6 +12,14 @@ export const DESCRIPTION =
 
 export const SPEC_VERSION = "axi/1.0-2026-07";
 
+/**
+ * stripe-axi is distributed from its GitHub repository, not the npm registry,
+ * so the zero-install form an agent copies out of SKILL.md has to name the
+ * git spec - a bare `npx -y stripe-axi` would resolve to whatever unrelated
+ * package holds that name on the registry.
+ */
+export const NPX_SPEC = "github:ardaatahan/stripe-axi";
+
 export function collapseHome(path: string): string {
   const home = homedir();
   return path.startsWith(home) ? "~" + path.slice(home.length) : path;
@@ -128,7 +136,7 @@ export function renderSkill(): string {
     "- Refunds and payouts (money leaving the account) are the most guarded commands.",
     "",
     "```",
-    homeBody("npx -y stripe-axi"),
+    homeBody(`npx -y ${NPX_SPEC}`),
     "```",
     "",
     "Every command supports `--help`. Exit codes: 0 success/no-op, 1 error, 2 usage error. All output is TOON on stdout.",

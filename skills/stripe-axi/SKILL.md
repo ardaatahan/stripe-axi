@@ -54,8 +54,8 @@ commands[35]{command,summary}:
   payment-links,List payment links
 help[3]:
   export STRIPE_API_KEY=sk_test_... (get one at https://dashboard.stripe.com/apikeys)
-  npx -y stripe-axi balance
-  npx -y stripe-axi --help
+  npx -y github:ardaatahan/stripe-axi balance
+  npx -y github:ardaatahan/stripe-axi --help
 ```
 
 Every command supports `--help`. Exit codes: 0 success/no-op, 1 error, 2 usage error. All output is TOON on stdout.

@@ -169,16 +169,27 @@ export function parseIdempotentReplayed(stderr: string): boolean | undefined {
  * The user-facing detail for a failed invocation. With `--show-headers` the
  * CLI writes its whole request/response trace ("> ..." / "< ..." lines) to
  * stderr ahead of the real message, which would otherwise fill the 500-char
- * budget and truncate the error the user actually needs.
+ * budget and truncate the error the user actually needs. When the trace is all
+ * there is, the response status still beats saying nothing: a bare exit code
+ * is not actionable on a money-moving write.
  */
 export function cliErrorDetail(stderr: string): string {
   const lines = stderr
     .split("\n")
     .map((line) => line.trimEnd())
-    .filter((line) => line.trim() !== "" && !/^\s*[<>]\s/.test(line));
-  const firstError = lines.findIndex((line) => /^\s*Error:/i.test(line));
-  const kept = firstError === -1 ? lines : lines.slice(firstError);
-  return kept.join("\n").trim().slice(0, 500);
+    .filter((line) => line.trim() !== "");
+  const message = lines.filter((line) => !/^\s*[<>]\s/.test(line));
+  if (message.length > 0) {
+    const firstError = message.findIndex((line) => /^\s*Error:/i.test(line));
+    const kept = firstError === -1 ? message : message.slice(firstError);
+    return kept.join("\n").trim().slice(0, 500);
+  }
+  return lines
+    .filter((line) => /^\s*<\s*HTTP\b/i.test(line))
+    .map((line) => line.replace(/^\s*<\s*/, ""))
+    .join("\n")
+    .trim()
+    .slice(0, 500);
 }
 
 export interface CliResponse {

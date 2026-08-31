@@ -116,8 +116,26 @@ describe("cliErrorDetail", () => {
     expect(cliErrorDetail("something went wrong")).toBe("something went wrong");
   });
 
-  it("reports nothing when stderr is only a header trace", () => {
-    expect(cliErrorDetail("> POST https://api.stripe.com/v1/refunds\n< HTTP 500\n")).toBe("");
+  // A bare exit code is not actionable on a money-moving write, so when the
+  // trace is the only thing stderr carries, the response status still goes out.
+  it("falls back to the response status when the trace is all there is", () => {
+    const trace = [
+      "> POST https://api.stripe.com/v1/refunds",
+      "> Authorization: Bearer [REDACTED]",
+      "< HTTP 401",
+      "< Request-Id: req_abc123",
+    ].join("\n");
+    expect(cliErrorDetail(trace)).toBe("HTTP 401");
+  });
+
+  it("prefers the real error over the status line when both are present", () => {
+    expect(cliErrorDetail("< HTTP 401\nError: Invalid API Key provided: sk_test_x")).toBe(
+      "Error: Invalid API Key provided: sk_test_x",
+    );
+  });
+
+  it("reports nothing when the trace carries no status either", () => {
+    expect(cliErrorDetail("> POST https://api.stripe.com/v1/refunds\n> Content-Type: x\n")).toBe("");
   });
 
   it("stays within the detail budget", () => {
