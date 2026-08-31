@@ -15,6 +15,15 @@ import { disputesList, disputeDetail } from "./commands/disputes.js";
 import { checkoutSessionsList } from "./commands/checkout.js";
 import { paymentLinksList } from "./commands/payment-links.js";
 
+// `stripe-axi charges --limit 100 | head -1` closes the pipe while a list
+// write is still in flight. Without a listener Node turns that into an
+// unhandled 'error' event: a stack trace on stderr and a non-zero exit for
+// what was a successful read.
+process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code !== "EPIPE") throw err;
+  process.exit(0);
+});
+
 const registry: Registry = {
   tool: "stripe-axi",
   root: homeCommand,

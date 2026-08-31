@@ -349,6 +349,35 @@ describe("pagination suggestions keep the current view", () => {
   });
 });
 
+describe("a consumer that closes the pipe early", () => {
+  it("ends quietly instead of crashing on EPIPE", () => {
+    // `... | head -1` closes the pipe mid-write on a ~200KB list. Node's
+    // default is an unhandled 'error' event: stack trace, non-zero exit.
+    const log = join(sandbox, `invocations-${runCount++}.log`);
+    const statusFile = join(sandbox, `epipe-status-${runCount}`);
+    const stderrFile = join(sandbox, `epipe-stderr-${runCount}`);
+    const firstLineFile = join(sandbox, `epipe-first-line-${runCount}`);
+    const q = (value: string) => JSON.stringify(value);
+    const command =
+      `{ ${q(process.execPath)} ${q(bin)} charges --limit 100 --fields id,amount,description ` +
+      `2>${q(stderrFile)}; echo $? >${q(statusFile)}; } | head -1 >${q(firstLineFile)}`;
+    spawnSync("/bin/sh", ["-c", command], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: sandbox,
+        PATH: stubPath,
+        STRIPE_API_KEY: TEST_KEY,
+        STRIPE_AXI_STUB_LOG: log,
+        STRIPE_AXI_STUB_BIG_LIST: "1",
+      },
+    });
+    expect(readFileSync(stderrFile, "utf8")).toBe("");
+    expect(readFileSync(statusFile, "utf8").trim()).toBe("0");
+    expect(readFileSync(firstLineFile, "utf8").trim()).toBe("mode: TEST");
+  });
+});
+
 describe("large output survives a slow consumer", () => {
   it("delivers the whole document instead of one pipe buffer", () => {
     // process.exit() drops whatever stdout still has queued for the pipe,
