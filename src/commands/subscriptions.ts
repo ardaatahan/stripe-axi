@@ -1,6 +1,7 @@
 import { makeDetailCommand, makeGatedCommand, makeListCommand, parseLimit } from "./factory.js";
 import { emitKV, print } from "../output/toon.js";
 import { formatUnixTime } from "../stripe/format.js";
+import { UsageError } from "../output/errors.js";
 
 const FIELDS = ["id", "customer", "status", "cancel_at_period_end", "created"];
 
@@ -69,6 +70,13 @@ export const subscriptionCancel = makeGatedCommand({
     const id = parsed.positionals[0]!;
     const atPeriodEnd = Boolean(parsed.flags["at-period-end"]);
     if (atPeriodEnd) {
+      const immediateOnly = ["invoice-now", "prorate"].filter((flag) => parsed.flags[flag]);
+      if (immediateOnly.length > 0) {
+        throw new UsageError(
+          `--at-period-end cannot be combined with ${immediateOnly.map((flag) => `--${flag}`).join(" or ")}`,
+          "invoice_now and prorate are parameters of Stripe's immediate cancel; drop --at-period-end to use them",
+        );
+      }
       return {
         operation: "subscription.cancel_at_period_end",
         description: `schedule subscription ${id} to cancel at period end`,

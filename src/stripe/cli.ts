@@ -11,8 +11,9 @@
 // (POST/DELETE) calls only, so its own interactive "are you sure?" prompt
 // never blocks a non-interactive run - that is a DIFFERENT flag from
 // stripe-axi's own `--confirm` (see src/safety/gate.ts), which is what
-// decided to invoke the CLI at all. `stripe get` never prompts and does not
-// register the flag, so sending it there would be rejected as an unknown flag.
+// decided to invoke the CLI at all. The CLI registers the flag for every
+// verb, but only DELETE actually prompts (stripe-cli requests.Base.InitFlags
+// and confirmationCommands), so sending it on a read would just be noise.
 //
 // The API key is handed to the child through its environment
 // (STRIPE_API_KEY), never as an argv token: argv is world-readable in the
@@ -164,6 +165,22 @@ export function parseIdempotentReplayed(stderr: string): boolean | undefined {
   return undefined;
 }
 
+/**
+ * The user-facing detail for a failed invocation. With `--show-headers` the
+ * CLI writes its whole request/response trace ("> ..." / "< ..." lines) to
+ * stderr ahead of the real message, which would otherwise fill the 500-char
+ * budget and truncate the error the user actually needs.
+ */
+export function cliErrorDetail(stderr: string): string {
+  const lines = stderr
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() !== "" && !/^\s*[<>]\s/.test(line));
+  const firstError = lines.findIndex((line) => /^\s*Error:/i.test(line));
+  const kept = firstError === -1 ? lines : lines.slice(firstError);
+  return kept.join("\n").trim().slice(0, 500);
+}
+
 export interface CliResponse {
   json: any;
   /** Stripe's verdict on whether this request was replayed; undefined if unreported. */
@@ -182,7 +199,7 @@ export async function stripeCliCall(req: CliRequest, spawnFn?: SpawnFn): Promise
   try {
     json = text ? JSON.parse(text) : {};
   } catch {
-    const detail = (result.stderr || text).trim().slice(0, 500);
+    const detail = cliErrorDetail(result.stderr) || text.trim().slice(0, 500);
     throw new AxiError(
       `the Stripe CLI returned a non-JSON response (exit ${result.code})`,
       detail ? `stripe CLI said: ${detail}` : "run 'stripe --version' to confirm the CLI is installed and working",
@@ -193,7 +210,7 @@ export async function stripeCliCall(req: CliRequest, spawnFn?: SpawnFn): Promise
     throw stripeErrorToAxiError(json as StripeErrorBody);
   }
   if (result.code !== 0) {
-    const detail = (result.stderr || text).trim().slice(0, 500);
+    const detail = cliErrorDetail(result.stderr) || text.trim().slice(0, 500);
     throw new AxiError(
       `the Stripe CLI exited with code ${result.code}`,
       detail || "re-run with the same arguments; report if it persists",

@@ -9,7 +9,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import { FIXTURE_CHARGE, FIXTURE_ERROR_INVALID_REQUEST } from "./fixtures.js";
-import { buildCliArgs, flattenParams, parseIdempotentReplayed, renderCliCommand, stripeCliCall, stripeCliRequest, STRIPE_CLI_INSTALL_HINT } from "../src/stripe/cli.js";
+import { buildCliArgs, cliErrorDetail, flattenParams, parseIdempotentReplayed, renderCliCommand, stripeCliCall, stripeCliRequest, STRIPE_CLI_INSTALL_HINT } from "../src/stripe/cli.js";
 import { AxiError } from "../src/output/errors.js";
 
 function fakeSpawn(opts: {
@@ -63,8 +63,7 @@ describe("buildCliArgs / flattenParams", () => {
   });
 
   it("passes --confirm to the underlying stripe process on mutating calls only", () => {
-    // `stripe get` never prompts and does not register --confirm; sending it
-    // there would make every read-only command fail on an unknown flag.
+    // Only DELETE prompts for confirmation, so a read never needs the flag.
     expect(buildCliArgs({ method: "GET", path: "/v1/balance" })).toEqual(["get", "/v1/balance", "--color", "off"]);
     expect(buildCliArgs({ method: "POST", path: "/v1/refunds" })).toEqual([
       "post", "/v1/refunds", "--color", "off", "--confirm",
@@ -81,6 +80,48 @@ describe("buildCliArgs / flattenParams", () => {
 
   it("omits undefined/null params entirely", () => {
     expect(flattenParams({ a: "x", b: undefined, c: null })).toEqual(["a=x"]);
+  });
+});
+
+describe("cliErrorDetail", () => {
+  // A --show-headers run prints the whole request/response trace to stderr
+  // before the real error, and it is long enough to fill the detail budget on
+  // its own.
+  const VERBOSE_FAILURE = [
+    "> POST https://api.stripe.com/v1/refunds",
+    "> Authorization: Bearer [REDACTED]",
+    "> Content-Type: application/x-www-form-urlencoded",
+    "> Idempotency-Key: stripe-axi_refund.create_47942a952b6c7cf2f89310eb5f86299b642d9e52",
+    "> Stripe-Version: 2024-06-20",
+    "< HTTP 401",
+    "< Date: Mon, 31 Aug 2026 12:00:00 GMT",
+    "< Request-Id: req_abc123",
+    "< Content-Type: application/json",
+    "Error: Invalid API Key provided: sk_test_***********************XYZ",
+  ].join("\n");
+
+  it("surfaces the real error instead of the header trace", () => {
+    expect(cliErrorDetail(VERBOSE_FAILURE)).toBe(
+      "Error: Invalid API Key provided: sk_test_***********************XYZ",
+    );
+  });
+
+  it("keeps the lines that follow the error", () => {
+    const detail = cliErrorDetail("Error: unknown flag: --nope\nUsage:\n  stripe post <path> [flags]");
+    expect(detail).toContain("unknown flag: --nope");
+    expect(detail).toContain("stripe post <path> [flags]");
+  });
+
+  it("keeps plain stderr that has no trace and no Error: line", () => {
+    expect(cliErrorDetail("something went wrong")).toBe("something went wrong");
+  });
+
+  it("reports nothing when stderr is only a header trace", () => {
+    expect(cliErrorDetail("> POST https://api.stripe.com/v1/refunds\n< HTTP 500\n")).toBe("");
+  });
+
+  it("stays within the detail budget", () => {
+    expect(cliErrorDetail(`Error: ${"x".repeat(900)}`).length).toBe(500);
   });
 });
 
@@ -185,6 +226,30 @@ describe("stripeCliRequest", () => {
       expect(err).toBeInstanceOf(AxiError);
       expect((err as InstanceType<typeof AxiError>).message).toMatch(/not installed/);
       expect((err as InstanceType<typeof AxiError>).suggestion).toBe(STRIPE_CLI_INSTALL_HINT);
+    }
+  });
+
+  it("suggests the Stripe error, not the verbose header dump, on a failed write", async () => {
+    const stderr = [
+      "> POST https://api.stripe.com/v1/refunds",
+      "> Authorization: Bearer [REDACTED]",
+      "> Idempotency-Key: stripe-axi_refund.create_47942a952b6c7cf2f89310eb5f86299b642d9e52",
+      "< HTTP 401",
+      "< Request-Id: req_abc123",
+      "Error: Invalid API Key provided: sk_test_***********************XYZ",
+    ].join("\n");
+    const { spawnFn } = fakeSpawn({ stdout: "", stderr, code: 1 });
+    try {
+      await stripeCliCall(
+        { method: "POST", path: "/v1/refunds", idempotencyKey: "k", showHeaders: true, apiKey: "sk_test_x" },
+        spawnFn,
+      );
+      expect.unreachable();
+    } catch (err) {
+      const axiErr = err as InstanceType<typeof AxiError>;
+      expect(axiErr.suggestion).toContain("Invalid API Key provided");
+      expect(axiErr.suggestion).not.toContain("Idempotency-Key:");
+      expect(axiErr.suggestion).not.toContain("Authorization:");
     }
   });
 

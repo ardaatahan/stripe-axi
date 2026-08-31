@@ -46,7 +46,19 @@ if [ -n "$STRIPE_AXI_STUB_REPLAY_HEADER" ]; then
   fi
 fi
 if [ -n "$STRIPE_AXI_STUB_FAIL" ]; then
-  printf 'Error: unknown flag: --nope\nUsage:\n  stripe post <path> [flags]\n' >&2
+  case " $* " in
+    *" --show-headers "*)
+      printf '> POST https://api.stripe.com/v1/refunds\n' >&2
+      printf '> Authorization: Bearer [REDACTED]\n' >&2
+      printf '> Idempotency-Key: stripe-axi_refund.create_47942a952b6c7cf2f89310eb5f86299b642d9e52\n' >&2
+      printf '< HTTP 401\n' >&2
+      printf '< Request-Id: req_stub\n' >&2
+      printf 'Error: Invalid API Key provided: sk_test_***********************XYZ\n' >&2
+      ;;
+    *)
+      printf 'Error: unknown flag: --nope\nUsage:\n  stripe post <path> [flags]\n' >&2
+      ;;
+  esac
   exit 1
 fi
 data='[]'
@@ -501,6 +513,39 @@ describe("a failing Stripe CLI keeps the stdout contract", () => {
     expect(r.stdout).toContain("error:");
     expect(r.stdout).toContain("unknown flag: --nope");
     expect(parseToon(r.stdout).ok).toBe(true);
+  });
+
+  // Writes run with --show-headers, so the CLI's request/response trace
+  // reaches stderr before the message the user needs.
+  it("shows the Stripe error on a failed write, not the header trace", () => {
+    const r = runWith({ STRIPE_API_KEY: TEST_KEY }, { fail: true }, ["refund", "ch_123", "--amount", "500", "--confirm"]);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain("Invalid API Key provided");
+    expect(r.stdout).not.toContain("Authorization:");
+    expect(r.stdout).not.toContain("Idempotency-Key:");
+    expect(parseToon(r.stdout).ok).toBe(true);
+  });
+});
+
+describe("subscription cancel flag combinations", () => {
+  it("refuses immediate-cancel-only flags alongside --at-period-end", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "subscription", "cancel", "sub_1", "--at-period-end", "--invoice-now", "--prorate", "--confirm");
+    expect(r.status).toBe(2);
+    expect(r.stdout).toContain("--at-period-end cannot be combined with --invoice-now or --prorate");
+    expect(r.invocations).toEqual([]);
+  });
+
+  it("still sends those flags on an immediate cancel", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "subscription", "cancel", "sub_1", "--invoice-now", "--prorate", "--confirm");
+    expect(r.status).toBe(0);
+    expect(r.invocations[0]).toContain("-d invoice_now=true");
+    expect(r.invocations[0]).toContain("-d prorate=true");
+  });
+
+  it("still schedules a plain period-end cancel", () => {
+    const r = run({ STRIPE_API_KEY: TEST_KEY }, "subscription", "cancel", "sub_1", "--at-period-end", "--confirm");
+    expect(r.status).toBe(0);
+    expect(r.invocations[0]).toContain("-d cancel_at_period_end=true");
   });
 });
 
